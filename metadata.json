@@ -1,0 +1,8 @@
+{
+  "name": "Sustain",
+  "description": "A premium food donation PWA featuring a high-end iOS-inspired design system with glassmorphism and smooth transitions.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
