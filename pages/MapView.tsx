@@ -1,7 +1,7 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin } from 'lucide-react';
+import { MapPin, Search, X } from 'lucide-react';
 import { FoodListing } from '../types';
 
 declare const L: any;
@@ -15,6 +15,8 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   useEffect(() => {
     if (!mapContainerRef.current || typeof L === 'undefined') return;
@@ -30,7 +32,6 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
         maxZoom: 19,
       }).addTo(mapRef.current);
 
-      // Add zoom control to bottom right
       L.control.zoom({ position: 'bottomright' }).addTo(mapRef.current);
     }
 
@@ -38,18 +39,28 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
+    // Filter listings based on search
+    const query = searchQuery.trim().toLowerCase();
+    const filtered = query
+      ? listings.filter(l =>
+          l.title.toLowerCase().includes(query) ||
+          l.location.address.toLowerCase().includes(query) ||
+          l.category.toLowerCase().includes(query) ||
+          l.donor.name.toLowerCase().includes(query)
+        )
+      : listings;
+
     // Add markers for each listing
-    listings.forEach(listing => {
+    filtered.forEach(listing => {
       if (!listing.location.lat || !listing.location.lng) return;
 
-      // Color based on status
-      let color = '#34C759'; // green = available
+      let color = '#34C759';
       let label = 'Available';
       if (listing.status === 'claimed') {
-        color = '#007AFF'; // blue
+        color = '#007AFF';
         label = 'Claimed';
       } else if (listing.status === 'expired') {
-        color = '#FF3B30'; // red
+        color = '#FF3B30';
         label = 'Expired';
       }
 
@@ -107,17 +118,22 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
       markersRef.current.push(marker);
     });
 
+    // If there's a search with results, zoom to fit
+    if (query && filtered.length > 0) {
+      const bounds = L.latLngBounds(filtered.map((l: FoodListing) => [l.location.lat, l.location.lng]));
+      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
+
     // Global claim handler
     (window as any).__claimFood = (id: string) => {
       onClaim(id);
-      // Close all popups
       mapRef.current?.closePopup();
     };
 
     return () => {
       delete (window as any).__claimFood;
     };
-  }, [listings, onClaim]);
+  }, [listings, onClaim, searchQuery]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -129,18 +145,47 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
     };
   }, []);
 
+  const availableCount = listings.filter(l => l.status === 'available').length;
+
   return (
     <div className="relative w-full h-full overflow-hidden">
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-[1000] pt-14 px-5 pb-3">
-        <h1 className="text-2xl font-black tracking-tight mb-0.5">Food Map</h1>
-        <p className="text-ios-systemGray font-semibold text-xs">
-          {listings.filter(l => l.status === 'available').length} available near you
-        </p>
+      {/* Header with Search */}
+      <div className="absolute top-0 left-0 right-0 z-[1000] bg-ios-lightBg/80 dark:bg-ios-darkBg/80 backdrop-blur-xl pt-3 px-4 pb-3">
+        <div className="flex items-center justify-between mb-2.5">
+          <div>
+            <h1 className="text-xl font-black tracking-tight">Food Map</h1>
+            <p className="text-ios-systemGray font-semibold text-[11px]">
+              {availableCount} available near you
+            </p>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ios-systemGray/60" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
+            placeholder="Search food, location, donor..."
+            className={`w-full h-10 pl-10 pr-10 rounded-xl bg-black/5 dark:bg-white/10 border-none text-[13px] font-semibold placeholder:text-ios-systemGray/50 focus:outline-none focus:ring-2 focus:ring-ios-blue/50 transition-all ${
+              isSearchFocused ? 'bg-white dark:bg-ios-darkCard shadow-sm' : ''
+            }`}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ios-systemGray/20 flex items-center justify-center"
+            >
+              <X size={10} className="text-ios-systemGray" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Legend */}
-      <div className="absolute bottom-6 left-4 z-[1000] glass-panel rounded-2xl px-4 py-3 shadow-lg">
+      <div className="absolute bottom-6 left-4 z-[1000] glass-panel rounded-2xl px-4 py-2.5 shadow-lg">
         <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wide">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-full bg-[#34C759]" />
