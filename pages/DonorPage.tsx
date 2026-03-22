@@ -5,8 +5,6 @@ import { Utensils, MapPin, Send, Check, Camera, Loader } from 'lucide-react';
 import { FoodCategory, FreshnessLevel } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
 
-const springConfig = { type: "spring" as const, stiffness: 400, damping: 35, mass: 0.8 };
-
 const CATEGORIES: { value: FoodCategory; emoji: string }[] = [
     { value: 'Prepared', emoji: '🍲' },
     { value: 'Bakery', emoji: '🥖' },
@@ -54,17 +52,17 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [locationError, setLocationError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
 
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
 
-    // Live search with Nominatim — debounced, scoped to Chennai
+    // Live search — debounced 300ms, partial match, scoped to Chennai
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
 
         const query = location.trim();
-        if (query.length < 2) {
-            setSuggestions([]);
-            setShowDropdown(false);
+        if (query.length < 2 || selectedLat !== null) {
+            if (query.length < 2) { setSuggestions([]); setShowDropdown(false); }
             return;
         }
 
@@ -73,9 +71,9 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
             try {
                 const searchQuery = query.toLowerCase().includes('chennai')
                     ? query
-                    : `${query}, Chennai`;
+                    : `${query}, Chennai, India`;
                 const res = await fetch(
-                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&viewbox=79.95,12.85,80.35,13.25&bounded=1`
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=6&viewbox=79.95,12.85,80.40,13.25&bounded=1&addressdetails=1`
                 );
                 const data: LocationSuggestion[] = await res.json();
                 setSuggestions(data);
@@ -85,15 +83,14 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
             } finally {
                 setIsSearching(false);
             }
-        }, 400);
+        }, 300);
 
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
         };
-    }, [location]);
+    }, [location, selectedLat]);
 
     const handleSelectSuggestion = (s: LocationSuggestion) => {
-        // Extract a short display name (area name from the full address)
         const parts = s.display_name.split(',');
         const shortName = parts.length >= 2
             ? `${parts[0].trim()}, ${parts[1].trim()}`
@@ -108,7 +105,6 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
     const handleLocationChange = (value: string) => {
         setLocation(value);
-        // Clear stored coords when user edits the text (they need to pick a suggestion)
         setSelectedLat(null);
         setSelectedLng(null);
         setLocationError('');
@@ -189,17 +185,17 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
     return (
         <div className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth">
-            <div className="px-5 pb-40 pt-4">
+            <div className="px-5 pb-48 pt-4">
                 {/* Title */}
-                <div className="mb-6">
+                <div className="mb-8">
                     <h1 className="text-3xl font-black tracking-tight mb-1">Share Food</h1>
                     <p className="text-ios-systemGray font-semibold text-sm">List surplus food for someone who needs it</p>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-7">
                     {/* Food Name */}
                     <div>
-                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-2">
+                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-3">
                             <Utensils size={12} /> Food Name
                         </label>
                         <input
@@ -212,7 +208,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
                     {/* Description */}
                     <div>
-                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-2 block">
+                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
                             Description (optional)
                         </label>
                         <textarea
@@ -225,23 +221,23 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                     </div>
 
                     {/* Category + Servings Row */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                         {/* Category */}
                         <div>
-                            <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-2 block">
+                            <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
                                 Category
                             </label>
-                            <div className="grid grid-cols-3 gap-1.5">
+                            <div className="grid grid-cols-3 gap-2">
                                 {CATEGORIES.map(cat => (
                                     <button
                                         key={cat.value}
                                         onClick={() => setCategory(cat.value)}
-                                        className={`py-2.5 rounded-xl text-center transition-colors duration-150 ${category === cat.value
+                                        className={`py-3 rounded-xl text-center transition-colors duration-150 ${category === cat.value
                                             ? 'bg-ios-blue text-white shadow-md shadow-ios-blue/20'
                                             : 'bg-white dark:bg-ios-darkCard text-ios-systemGray'
                                             }`}
                                     >
-                                        <div className="text-base">{cat.emoji}</div>
+                                        <div className="text-lg">{cat.emoji}</div>
                                         <div className="text-[9px] font-bold mt-0.5">{cat.value}</div>
                                     </button>
                                 ))}
@@ -250,15 +246,15 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
                         {/* Servings */}
                         <div>
-                            <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-2 block">
+                            <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
                                 Servings
                             </label>
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-2 gap-2">
                                 {['1-2', '3-5', '6-10', '10+'].map(s => (
                                     <button
                                         key={s}
                                         onClick={() => setServings(s)}
-                                        className={`py-3 rounded-xl text-[13px] font-bold text-center transition-colors duration-150 ${servings === s
+                                        className={`py-3.5 rounded-xl text-[13px] font-bold text-center transition-colors duration-150 ${servings === s
                                             ? 'bg-ios-systemGreen text-white shadow-md shadow-ios-systemGreen/20'
                                             : 'bg-white dark:bg-ios-darkCard text-ios-systemGray'
                                             }`}
@@ -282,17 +278,23 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
                     {/* Location — Live search with Nominatim */}
                     <div className="relative">
-                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-2">
+                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-3">
                             <MapPin size={12} /> Pickup Location
                         </label>
                         <div className="relative">
                             <input
                                 value={location}
                                 onChange={(e) => handleLocationChange(e.target.value)}
-                                onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
-                                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-                                placeholder="Type area name, e.g. Royapettah, T Nagar..."
-                                className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 focus:ring-ios-blue transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${locationError ? 'ring-2 ring-ios-systemRed' : ''} ${selectedLat !== null ? 'ring-2 ring-emerald-500' : ''}`}
+                                onFocus={() => { if (suggestions.length > 0 && selectedLat === null) setShowDropdown(true); }}
+                                onBlur={() => setTimeout(() => setShowDropdown(false), 250)}
+                                placeholder="Type area name, e.g. Roya..."
+                                className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${
+                                    locationError
+                                        ? 'ring-2 ring-ios-systemRed focus:ring-ios-systemRed'
+                                        : selectedLat !== null
+                                        ? 'ring-2 ring-emerald-500 focus:ring-emerald-500'
+                                        : 'focus:ring-ios-blue'
+                                }`}
                             />
                             {/* Status indicator */}
                             <div className="absolute right-4 top-1/2 -translate-y-1/2">
@@ -303,7 +305,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                                         className="w-5 h-5 border-2 border-ios-blue/30 border-t-ios-blue rounded-full"
                                     />
                                 ) : selectedLat !== null ? (
-                                    <Check size={18} className="text-emerald-500" />
+                                    <Check size={18} className="text-emerald-500" strokeWidth={3} />
                                 ) : location.length >= 2 ? (
                                     <MapPin size={18} className="text-ios-systemGray/40" />
                                 ) : null}
@@ -312,53 +314,75 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
                         {/* Live suggestions dropdown */}
                         {showDropdown && suggestions.length > 0 && (
-                            <div className="absolute top-full left-0 right-0 mt-2 z-30 glass-panel rounded-2xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto no-scrollbar">
-                                {suggestions.map((s, idx) => {
-                                    // Show a short readable name
-                                    const parts = s.display_name.split(',');
-                                    const shortName = parts.slice(0, 3).join(',').trim();
-                                    return (
-                                        <button
-                                            key={`${s.lat}-${s.lon}-${idx}`}
-                                            onMouseDown={() => handleSelectSuggestion(s)}
-                                            className="w-full px-5 py-3.5 text-left text-sm font-semibold hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.03] dark:border-white/[0.03] last:border-none flex items-center gap-3"
-                                        >
-                                            <MapPin size={14} className="text-ios-blue shrink-0" />
-                                            <span className="truncate">{shortName}</span>
-                                        </button>
-                                    );
-                                })}
+                            <div
+                                ref={dropdownRef}
+                                className="absolute top-full left-0 right-0 mt-2 z-[100] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] overflow-hidden"
+                                style={{ maxHeight: '220px' }}
+                            >
+                                <div
+                                    className="overflow-y-auto overscroll-contain"
+                                    style={{ maxHeight: '220px', WebkitOverflowScrolling: 'touch' }}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                >
+                                    {suggestions.map((s, idx) => {
+                                        const parts = s.display_name.split(',');
+                                        const primary = parts[0].trim();
+                                        const secondary = parts.slice(1, 3).join(',').trim();
+                                        return (
+                                            <button
+                                                key={`${s.lat}-${s.lon}-${idx}`}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    handleSelectSuggestion(s);
+                                                }}
+                                                onTouchEnd={(e) => {
+                                                    e.preventDefault();
+                                                    handleSelectSuggestion(s);
+                                                }}
+                                                className="w-full px-4 py-3.5 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.04] dark:border-white/[0.04] last:border-none flex items-start gap-3"
+                                            >
+                                                <div className="w-8 h-8 rounded-xl bg-ios-blue/10 flex items-center justify-center shrink-0 mt-0.5">
+                                                    <MapPin size={14} className="text-ios-blue" />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-[14px] font-bold truncate">{primary}</div>
+                                                    <div className="text-[11px] text-ios-systemGray font-medium truncate">{secondary}</div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Selected location info */}
+                    {/* Selected location confirmation */}
                     {selectedLat !== null && selectedLng !== null && (
-                        <div className="flex items-center gap-2 px-1 -mt-3">
-                            <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                                📍 Location set: {location}
+                        <div className="flex items-center gap-2.5 px-1 -mt-4">
+                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
+                                📍 {location}
                             </span>
                         </div>
                     )}
 
                     {/* Location Error */}
                     {locationError && (
-                        <p className="text-ios-systemRed text-sm font-semibold px-1 -mt-3">{locationError}</p>
+                        <p className="text-ios-systemRed text-[13px] font-semibold px-1 -mt-4">{locationError}</p>
                     )}
                 </div>
             </div>
 
             {/* Submit Button — Fixed Bottom */}
-            <div className="fixed bottom-24 left-0 right-0 px-5 z-30">
+            <div className="fixed bottom-20 left-0 right-0 px-5 z-30 pb-4">
                 <div className="max-w-md mx-auto">
                     <motion.button
-                        whileTap={canSubmit ? { scale: 0.96 } : {}}
+                        whileTap={canSubmit ? { scale: 0.97 } : {}}
                         onClick={handleSubmit}
                         disabled={!canSubmit}
-                        className={`w-full py-4.5 rounded-[1.5rem] font-black text-[15px] uppercase tracking-widest flex items-center justify-center gap-2 transition-colors duration-200 ${canSubmit
-                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 text-white shadow-[0_12px_24px_-8px_rgba(52,199,89,0.4)]'
-                            : 'bg-gray-200 dark:bg-white/10 text-ios-systemGray cursor-not-allowed'
+                        className={`w-full py-[18px] rounded-2xl font-black text-[15px] tracking-wide flex items-center justify-center gap-2.5 transition-all duration-300 ${canSubmit
+                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 active:shadow-md'
+                            : 'bg-gray-200 dark:bg-white/[0.08] text-ios-systemGray cursor-not-allowed'
                             }`}
                     >
                         {isSubmitting ? (
