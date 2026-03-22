@@ -94,39 +94,6 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignup, onGoToLogin }) => {
           />
         </div>
 
-        {/* Role Selector */}
-        <div>
-          <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-2 block">
-            I want to
-          </label>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setRole('donor')}
-              className={`flex-1 py-4 rounded-2xl text-[13px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                role === 'donor'
-                  ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 text-white shadow-lg shadow-emerald-500/20'
-                  : 'bg-white dark:bg-ios-darkCard text-ios-systemGray'
-              }`}
-            >
-              <Heart size={16} className={role === 'donor' ? 'fill-white/30' : ''} />
-              Donate Food
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole('receiver')}
-              className={`flex-1 py-4 rounded-2xl text-[13px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                role === 'receiver'
-                  ? 'bg-gradient-to-r from-blue-500 to-blue-400 text-white shadow-lg shadow-blue-500/20'
-                  : 'bg-white dark:bg-ios-darkCard text-ios-systemGray'
-              }`}
-            >
-              <Search size={16} />
-              Receive Food
-            </button>
-          </div>
-        </div>
-
         {/* Error */}
         {error && (
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-ios-systemRed text-sm font-semibold text-center">
