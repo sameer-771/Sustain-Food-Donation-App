@@ -21,7 +21,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     const [sortMode, setSortMode] = useState<SortMode>('nearest');
     const [showFilters, setShowFilters] = useState(false);
     const [maxDistance, setMaxDistance] = useState<number>(10);
-    const [claimedListing, setClaimedListing] = useState<FoodListing | null>(null);
+    const [selectedListing, setSelectedListing] = useState<FoodListing | null>(null);
 
     const filtered = useMemo(() => {
         let result = [...listings];
@@ -52,19 +52,26 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         return result;
     }, [listings, activeCategory, searchQuery, sortMode, maxDistance]);
 
+    // Step 1: User clicks Claim → show the modal (don't claim yet)
     const handleClaim = (id: string) => {
         const listing = listings.find(l => l.id === id);
         if (!listing || listing.status !== 'available') return;
+        setSelectedListing(listing);
+    };
+
+    // Step 2: User confirms claim in the modal → actually claim the food
+    const handleConfirmClaim = (id: string) => {
         onClaim(id);
-        // Show pickup modal with the claimed listing
-        if (listing) {
-            setClaimedListing({ ...listing, claimed: true, status: 'claimed' });
+        // Update the selected listing to show pickup details
+        const updated = listings.find(l => l.id === id);
+        if (updated) {
+            setSelectedListing({ ...updated, claimed: true, status: 'claimed' });
         }
     };
 
     const handlePickupConfirmed = (id: string) => {
         onPickupConfirmed(id);
-        setClaimedListing(null);
+        setSelectedListing(null);
     };
 
     const availableCount = filtered.filter(l => l.status === 'available').length;
@@ -210,10 +217,11 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
 
             {/* Pickup Modal */}
             <AnimatePresence>
-                {claimedListing && (
+                {selectedListing && (
                     <PickupModal
-                        listing={claimedListing}
-                        onClose={() => setClaimedListing(null)}
+                        listing={selectedListing}
+                        onClose={() => setSelectedListing(null)}
+                        onConfirmClaim={handleConfirmClaim}
                         onConfirmPickup={handlePickupConfirmed}
                     />
                 )}

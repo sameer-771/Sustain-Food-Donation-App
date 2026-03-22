@@ -1,7 +1,7 @@
 
-import React, { useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { X, MapPin, Navigation, Clock, CheckCircle, Copy } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X, MapPin, Navigation, Clock, CheckCircle, Copy, ShoppingBag, Utensils } from 'lucide-react';
 import { FoodListing } from '../types';
 
 declare const L: any;
@@ -9,15 +9,29 @@ declare const L: any;
 interface PickupModalProps {
     listing: FoodListing | null;
     onClose: () => void;
+    onConfirmClaim: (id: string) => void;
     onConfirmPickup: (id: string) => void;
 }
 
-const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPickup }) => {
+const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmClaim, onConfirmPickup }) => {
+    const [step, setStep] = useState<'confirm' | 'pickup'>('confirm');
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<any>(null);
 
+    // Reset step when listing changes
     useEffect(() => {
-        if (!listing || !mapRef.current) return;
+        if (listing) {
+            if (listing.status === 'claimed') {
+                setStep('pickup');
+            } else {
+                setStep('confirm');
+            }
+        }
+    }, [listing]);
+
+    // Initialize map for pickup step
+    useEffect(() => {
+        if (step !== 'pickup' || !listing || !mapRef.current) return;
 
         const timer = setTimeout(() => {
             if (!mapRef.current || mapInstanceRef.current) return;
@@ -68,9 +82,14 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPi
                 mapInstanceRef.current = null;
             }
         };
-    }, [listing]);
+    }, [step, listing]);
 
     if (!listing) return null;
+
+    const handleConfirmClaim = () => {
+        onConfirmClaim(listing.id);
+        setStep('pickup');
+    };
 
     const handleCopyAddress = () => {
         navigator.clipboard?.writeText(listing.location.address);
@@ -92,7 +111,7 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPi
                 className="absolute inset-0 bg-black/50"
             />
 
-            {/* Modal - using tween for smooth non-laggy animation */}
+            {/* Modal */}
             <motion.div
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
@@ -117,93 +136,169 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPi
 
                 {/* Scrollable Content */}
                 <div className="overflow-y-auto overscroll-contain" style={{ maxHeight: 'calc(80vh - 32px)' }}>
-                    <div className="px-5 pt-1 pb-10 space-y-3.5">
-                        {/* Header */}
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl overflow-hidden shrink-0 shadow-lg">
-                                <img src={listing.thumbnailUrl} alt={listing.title} className="w-full h-full object-cover" />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-black leading-tight">{listing.title}</h3>
-                                <p className="text-ios-systemGray text-xs font-semibold">from {listing.donor.name}</p>
-                            </div>
-                        </div>
-
-                        {/* Success Banner */}
-                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 flex items-center gap-3">
-                            <CheckCircle size={18} className="text-emerald-500 shrink-0" />
-                            <div>
-                                <p className="text-[13px] font-bold text-emerald-600 dark:text-emerald-400">Food Claimed Successfully!</p>
-                                <p className="text-[11px] text-ios-systemGray font-medium">The donor has been notified.</p>
-                            </div>
-                        </div>
-
-                        {/* Pickup Location with Real Map */}
-                        <div className="bg-white dark:bg-ios-darkCard rounded-2xl overflow-hidden shadow-sm">
-                            <div className="p-3 space-y-1.5">
-                                <div className="flex items-center gap-2">
-                                    <MapPin size={13} className="text-ios-blue" />
-                                    <span className="text-[10px] font-black text-ios-systemGray uppercase tracking-widest">Pickup Location</span>
+                    <AnimatePresence mode="wait">
+                        {step === 'confirm' ? (
+                            /* ===== STEP 1: Claim Confirmation ===== */
+                            <motion.div
+                                key="confirm"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="px-5 pt-1 pb-10"
+                            >
+                                {/* Food Image */}
+                                <div className="w-full h-40 rounded-2xl overflow-hidden mb-4 shadow-lg">
+                                    <img src={listing.imageUrl || listing.thumbnailUrl} alt={listing.title} className="w-full h-full object-cover" />
                                 </div>
-                                <div className="flex items-start gap-3">
-                                    <div className="flex-1">
-                                        <p className="text-[13px] font-bold">{listing.location.address}</p>
-                                        <p className="text-[11px] text-ios-systemGray font-medium">{listing.location.distance} away</p>
+
+                                {/* Food Details */}
+                                <h3 className="text-xl font-black mb-1">{listing.title}</h3>
+                                <p className="text-ios-systemGray text-sm font-semibold mb-4">by {listing.donor.name}</p>
+
+                                {listing.description && (
+                                    <p className="text-sm text-ios-systemGray font-medium mb-4 leading-relaxed">{listing.description}</p>
+                                )}
+
+                                {/* Info chips */}
+                                <div className="flex flex-wrap gap-2 mb-4">
+                                    <div className="flex items-center gap-1.5 bg-white dark:bg-ios-darkCard px-3 py-2 rounded-xl shadow-sm">
+                                        <Utensils size={13} className="text-ios-blue" />
+                                        <span className="text-[12px] font-bold">{listing.servings} servings</span>
                                     </div>
+                                    <div className="flex items-center gap-1.5 bg-white dark:bg-ios-darkCard px-3 py-2 rounded-xl shadow-sm">
+                                        <MapPin size={13} className="text-ios-systemRed" />
+                                        <span className="text-[12px] font-bold">{listing.location.distance}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 bg-white dark:bg-ios-darkCard px-3 py-2 rounded-xl shadow-sm">
+                                        <Clock size={13} className="text-amber-500" />
+                                        <span className="text-[12px] font-bold">
+                                            Expires {new Date(listing.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Location */}
+                                <div className="flex items-center gap-2 mb-5 px-1">
+                                    <MapPin size={14} className="text-ios-systemGray shrink-0" />
+                                    <span className="text-[13px] font-semibold text-ios-systemGray">{listing.location.address}</span>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="space-y-2.5">
                                     <button
-                                        onClick={handleCopyAddress}
-                                        className="shrink-0 w-7 h-7 rounded-lg bg-ios-blue/10 flex items-center justify-center"
+                                        onClick={handleConfirmClaim}
+                                        className="w-full py-4 rounded-2xl bg-ios-blue text-white font-black text-[14px] uppercase tracking-wider shadow-lg shadow-ios-blue/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                                     >
-                                        <Copy size={12} className="text-ios-blue" />
+                                        <ShoppingBag size={18} />
+                                        Claim This Food
+                                    </button>
+                                    <button
+                                        onClick={onClose}
+                                        className="w-full py-3 rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
+                                    >
+                                        Cancel
                                     </button>
                                 </div>
-                            </div>
-
-                            {/* Real Leaflet Map */}
-                            <div
-                                ref={mapRef}
-                                className="w-full"
-                                style={{ height: '140px' }}
-                            />
-                        </div>
-
-                        {/* Info Row */}
-                        <div className="flex gap-2.5">
-                            <div className="flex-1 bg-white dark:bg-ios-darkCard rounded-xl p-2.5 flex items-center gap-2 shadow-sm">
-                                <Clock size={13} className="text-amber-500" />
-                                <div>
-                                    <p className="text-[9px] text-ios-systemGray font-bold uppercase">Pickup By</p>
-                                    <p className="text-[12px] font-black">
-                                        {new Date(listing.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex-1 bg-white dark:bg-ios-darkCard rounded-xl p-2.5 flex items-center gap-2 shadow-sm">
-                                <Navigation size={13} className="text-ios-blue" />
-                                <div>
-                                    <p className="text-[9px] text-ios-systemGray font-bold uppercase">Distance</p>
-                                    <p className="text-[12px] font-black">{listing.location.distance}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="space-y-2 pt-1">
-                            <button
-                                onClick={() => onConfirmPickup(listing.id)}
-                                className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white font-black text-[13px] uppercase tracking-wider shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                            </motion.div>
+                        ) : (
+                            /* ===== STEP 2: Pickup Details ===== */
+                            <motion.div
+                                key="pickup"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="px-5 pt-1 pb-10 space-y-3.5"
                             >
-                                <CheckCircle size={16} />
-                                I've Picked Up the Food
-                            </button>
-                            <button
-                                onClick={onClose}
-                                className="w-full py-3 rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
+                                {/* Header */}
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl overflow-hidden shrink-0 shadow-lg">
+                                        <img src={listing.thumbnailUrl} alt={listing.title} className="w-full h-full object-cover" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-black leading-tight">{listing.title}</h3>
+                                        <p className="text-ios-systemGray text-xs font-semibold">from {listing.donor.name}</p>
+                                    </div>
+                                </div>
+
+                                {/* Success Banner */}
+                                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 flex items-center gap-3">
+                                    <CheckCircle size={18} className="text-emerald-500 shrink-0" />
+                                    <div>
+                                        <p className="text-[13px] font-bold text-emerald-600 dark:text-emerald-400">Food Claimed Successfully!</p>
+                                        <p className="text-[11px] text-ios-systemGray font-medium">The donor has been notified.</p>
+                                    </div>
+                                </div>
+
+                                {/* Pickup Location with Real Map */}
+                                <div className="bg-white dark:bg-ios-darkCard rounded-2xl overflow-hidden shadow-sm">
+                                    <div className="p-3 space-y-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <MapPin size={13} className="text-ios-blue" />
+                                            <span className="text-[10px] font-black text-ios-systemGray uppercase tracking-widest">Pickup Location</span>
+                                        </div>
+                                        <div className="flex items-start gap-3">
+                                            <div className="flex-1">
+                                                <p className="text-[13px] font-bold">{listing.location.address}</p>
+                                                <p className="text-[11px] text-ios-systemGray font-medium">{listing.location.distance} away</p>
+                                            </div>
+                                            <button
+                                                onClick={handleCopyAddress}
+                                                className="shrink-0 w-7 h-7 rounded-lg bg-ios-blue/10 flex items-center justify-center"
+                                            >
+                                                <Copy size={12} className="text-ios-blue" />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Real Leaflet Map */}
+                                    <div
+                                        ref={mapRef}
+                                        className="w-full"
+                                        style={{ height: '140px' }}
+                                    />
+                                </div>
+
+                                {/* Info Row */}
+                                <div className="flex gap-2.5">
+                                    <div className="flex-1 bg-white dark:bg-ios-darkCard rounded-xl p-2.5 flex items-center gap-2 shadow-sm">
+                                        <Clock size={13} className="text-amber-500" />
+                                        <div>
+                                            <p className="text-[9px] text-ios-systemGray font-bold uppercase">Pickup By</p>
+                                            <p className="text-[12px] font-black">
+                                                {new Date(listing.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 bg-white dark:bg-ios-darkCard rounded-xl p-2.5 flex items-center gap-2 shadow-sm">
+                                        <Navigation size={13} className="text-ios-blue" />
+                                        <div>
+                                            <p className="text-[9px] text-ios-systemGray font-bold uppercase">Distance</p>
+                                            <p className="text-[12px] font-black">{listing.location.distance}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="space-y-2 pt-1">
+                                    <button
+                                        onClick={() => onConfirmPickup(listing.id)}
+                                        className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white font-black text-[13px] uppercase tracking-wider shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                                    >
+                                        <CheckCircle size={16} />
+                                        I've Picked Up the Food
+                                    </button>
+                                    <button
+                                        onClick={onClose}
+                                        className="w-full py-3 rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </motion.div>
         </motion.div>

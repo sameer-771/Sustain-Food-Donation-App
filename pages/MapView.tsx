@@ -150,7 +150,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
   return (
     <div className="relative w-full h-full overflow-hidden">
       {/* Header with Search */}
-      <div className="absolute top-0 left-0 right-0 z-[1000] bg-ios-lightBg/80 dark:bg-ios-darkBg/80 backdrop-blur-xl pt-3 px-4 pb-3">
+      <div className="absolute top-0 left-0 right-0 z-[1000] pt-3 px-4 pb-3">
         <div className="flex items-center justify-between mb-2.5">
           <div>
             <h1 className="text-xl font-black tracking-tight">Food Map</h1>
