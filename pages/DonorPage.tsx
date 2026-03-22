@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Utensils, MapPin, Send, Check, Camera, Loader } from 'lucide-react';
 import { FoodCategory, FreshnessLevel } from '../types';
@@ -53,10 +53,26 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [locationError, setLocationError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
 
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
 
     // Live search — debounced 300ms, partial match, scoped to Chennai
+    // Position dropdown below input
+    const updateDropdownPosition = useCallback(() => {
+        if (inputRef.current) {
+            const rect = inputRef.current.getBoundingClientRect();
+            setDropdownStyle({
+                position: 'fixed' as const,
+                top: rect.bottom + 8,
+                left: rect.left,
+                width: rect.width,
+                zIndex: 9999,
+            });
+        }
+    }, []);
+
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -73,11 +89,16 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                     ? query
                     : `${query}, Chennai, India`;
                 const res = await fetch(
-                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=6&viewbox=79.95,12.85,80.40,13.25&bounded=1&addressdetails=1`
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=6&countrycodes=in&addressdetails=1`
                 );
                 const data: LocationSuggestion[] = await res.json();
                 setSuggestions(data);
-                setShowDropdown(data.length > 0);
+                if (data.length > 0) {
+                    updateDropdownPosition();
+                    setShowDropdown(true);
+                } else {
+                    setShowDropdown(false);
+                }
             } catch {
                 setSuggestions([]);
             } finally {
@@ -88,7 +109,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
         };
-    }, [location, selectedLat]);
+    }, [location, selectedLat, updateDropdownPosition]);
 
     const handleSelectSuggestion = (s: LocationSuggestion) => {
         const parts = s.display_name.split(',');
@@ -283,10 +304,16 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         </label>
                         <div className="relative">
                             <input
+                                ref={inputRef}
                                 value={location}
                                 onChange={(e) => handleLocationChange(e.target.value)}
-                                onFocus={() => { if (suggestions.length > 0 && selectedLat === null) setShowDropdown(true); }}
-                                onBlur={() => setTimeout(() => setShowDropdown(false), 250)}
+                                onFocus={() => {
+                                    if (suggestions.length > 0 && selectedLat === null) {
+                                        updateDropdownPosition();
+                                        setShowDropdown(true);
+                                    }
+                                }}
+                                onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
                                 placeholder="Type area name, e.g. Roya..."
                                 className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${
                                     locationError
@@ -311,49 +338,6 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                                 ) : null}
                             </div>
                         </div>
-
-                        {/* Live suggestions dropdown */}
-                        {showDropdown && suggestions.length > 0 && (
-                            <div
-                                ref={dropdownRef}
-                                className="absolute top-full left-0 right-0 mt-2 z-[100] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.06] dark:border-white/[0.08] overflow-hidden"
-                                style={{ maxHeight: '220px' }}
-                            >
-                                <div
-                                    className="overflow-y-auto overscroll-contain"
-                                    style={{ maxHeight: '220px', WebkitOverflowScrolling: 'touch' }}
-                                    onTouchStart={(e) => e.stopPropagation()}
-                                >
-                                    {suggestions.map((s, idx) => {
-                                        const parts = s.display_name.split(',');
-                                        const primary = parts[0].trim();
-                                        const secondary = parts.slice(1, 3).join(',').trim();
-                                        return (
-                                            <button
-                                                key={`${s.lat}-${s.lon}-${idx}`}
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault();
-                                                    handleSelectSuggestion(s);
-                                                }}
-                                                onTouchEnd={(e) => {
-                                                    e.preventDefault();
-                                                    handleSelectSuggestion(s);
-                                                }}
-                                                className="w-full px-4 py-3.5 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.04] dark:border-white/[0.04] last:border-none flex items-start gap-3"
-                                            >
-                                                <div className="w-8 h-8 rounded-xl bg-ios-blue/10 flex items-center justify-center shrink-0 mt-0.5">
-                                                    <MapPin size={14} className="text-ios-blue" />
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="text-[14px] font-bold truncate">{primary}</div>
-                                                    <div className="text-[11px] text-ios-systemGray font-medium truncate">{secondary}</div>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
                     </div>
 
                     {/* Selected location confirmation */}
@@ -372,6 +356,45 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                     )}
                 </div>
             </div>
+
+            {/* Fixed-position suggestions dropdown (rendered outside scroll container) */}
+            {showDropdown && suggestions.length > 0 && (
+                <div
+                    ref={dropdownRef}
+                    style={dropdownStyle}
+                    className="bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden"
+                >
+                    <div
+                        className="overflow-y-auto"
+                        style={{ maxHeight: '200px' }}
+                    >
+                        {suggestions.map((s, idx) => {
+                            const parts = s.display_name.split(',');
+                            const primary = parts[0].trim();
+                            const secondary = parts.slice(1, 3).join(',').trim();
+                            return (
+                                <button
+                                    key={`${s.lat}-${s.lon}-${idx}`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleSelectSuggestion(s);
+                                    }}
+                                    className="w-full px-4 py-3.5 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.04] dark:border-white/[0.04] last:border-none flex items-start gap-3 cursor-pointer"
+                                >
+                                    <div className="w-8 h-8 rounded-xl bg-ios-blue/10 flex items-center justify-center shrink-0 mt-0.5">
+                                        <MapPin size={14} className="text-ios-blue" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-[14px] font-bold truncate">{primary}</div>
+                                        <div className="text-[11px] text-ios-systemGray font-medium truncate">{secondary}</div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* Submit Button — Fixed Bottom */}
             <div className="fixed bottom-20 left-0 right-0 px-5 z-30 pb-4">
