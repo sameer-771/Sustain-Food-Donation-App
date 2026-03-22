@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Utensils, MapPin, Send, Check, Camera } from 'lucide-react';
+import { Utensils, MapPin, Send, Check, Camera, Loader } from 'lucide-react';
 import { FoodCategory, FreshnessLevel } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
 
@@ -16,13 +16,11 @@ const CATEGORIES: { value: FoodCategory; emoji: string }[] = [
     { value: 'Other', emoji: '📦' },
 ];
 
-const LOCATION_SUGGESTIONS = [
-    'Community Center, Main St',
-    'City Food Bank, Oak Ave',
-    'Shelter Hub, Elm Blvd',
-    'Church Kitchen, Pine Rd',
-    'NGO Office, Cedar Lane',
-];
+interface LocationSuggestion {
+    display_name: string;
+    lat: string;
+    lon: string;
+}
 
 interface DonorPageProps {
     onDonate: (data: {
@@ -44,54 +42,101 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [category, setCategory] = useState<FoodCategory>('Prepared');
     const [servings, setServings] = useState('3-5');
     const [location, setLocation] = useState('');
-    const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+    const [selectedLat, setSelectedLat] = useState<number | null>(null);
+    const [selectedLng, setSelectedLng] = useState<number | null>(null);
+    const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
     const [freshness, setFreshness] = useState<FreshnessLevel | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [locationError, setLocationError] = useState('');
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const canSubmit = foodName.trim() && location.trim() && !isSubmitting;
+    const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
 
-    const handleSubmit = async () => {
-        if (!canSubmit) return;
+    // Live search with Nominatim — debounced, scoped to Chennai
+    useEffect(() => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+
+        const query = location.trim();
+        if (query.length < 2) {
+            setSuggestions([]);
+            setShowDropdown(false);
+            return;
+        }
+
+        setIsSearching(true);
+        debounceRef.current = setTimeout(async () => {
+            try {
+                const searchQuery = query.toLowerCase().includes('chennai')
+                    ? query
+                    : `${query}, Chennai`;
+                const res = await fetch(
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&viewbox=79.95,12.85,80.35,13.25&bounded=1`
+                );
+                const data: LocationSuggestion[] = await res.json();
+                setSuggestions(data);
+                setShowDropdown(data.length > 0);
+            } catch {
+                setSuggestions([]);
+            } finally {
+                setIsSearching(false);
+            }
+        }, 400);
+
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+        };
+    }, [location]);
+
+    const handleSelectSuggestion = (s: LocationSuggestion) => {
+        // Extract a short display name (area name from the full address)
+        const parts = s.display_name.split(',');
+        const shortName = parts.length >= 2
+            ? `${parts[0].trim()}, ${parts[1].trim()}`
+            : parts[0].trim();
+        setLocation(shortName);
+        setSelectedLat(parseFloat(s.lat));
+        setSelectedLng(parseFloat(s.lon));
+        setShowDropdown(false);
+        setSuggestions([]);
+        setLocationError('');
+    };
+
+    const handleLocationChange = (value: string) => {
+        setLocation(value);
+        // Clear stored coords when user edits the text (they need to pick a suggestion)
+        setSelectedLat(null);
+        setSelectedLng(null);
+        setLocationError('');
+    };
+
+    const handleSubmit = () => {
+        if (!canSubmit || selectedLat === null || selectedLng === null) {
+            if (!selectedLat || !selectedLng) {
+                setLocationError('Please select a location from the suggestions.');
+            }
+            return;
+        }
         setIsSubmitting(true);
         setLocationError('');
 
-        try {
-            // Geocode location via Nominatim
-            const res = await fetch(
-                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location.trim())}`
-            );
-            const data = await res.json();
-
-            if (!data || data.length === 0) {
-                setLocationError('Invalid location. Please enter a valid area/city.');
-                setIsSubmitting(false);
-                return;
-            }
-
-            const lat = parseFloat(data[0].lat);
-            const lng = parseFloat(data[0].lon);
-
-            onDonate({
-                foodName,
-                description,
-                category,
-                servings,
-                location: location.trim(),
-                lat,
-                lng,
-                imagePreviewUrl,
-                freshness,
-            });
-            setIsSubmitting(false);
-            setIsSubmitted(true);
-        } catch (err) {
-            setLocationError('Unable to fetch location. Please try again.');
-            setIsSubmitting(false);
-        }
+        onDonate({
+            foodName,
+            description,
+            category,
+            servings,
+            location: location.trim(),
+            lat: selectedLat,
+            lng: selectedLng,
+            imagePreviewUrl,
+            freshness,
+        });
+        setIsSubmitting(false);
+        setIsSubmitted(true);
     };
 
     const handleReset = () => {
@@ -100,10 +145,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
         setCategory('Prepared');
         setServings('3-5');
         setLocation('');
+        setSelectedLat(null);
+        setSelectedLng(null);
         setImageFile(null);
         setImagePreviewUrl(null);
         setFreshness(null);
         setIsSubmitted(false);
+        setLocationError('');
     };
 
     if (isSubmitted) {
@@ -149,7 +197,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                 </div>
 
                 <div className="space-y-6">
-                    {/* Food Name — Free text, no dropdown */}
+                    {/* Food Name */}
                     <div>
                         <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-2">
                             <Utensils size={12} /> Food Name
@@ -232,46 +280,71 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         onImageRemove={() => { setImageFile(null); setImagePreviewUrl(null); setFreshness(null); }}
                     />
 
-                    {/* Location — Manual input with optional dropdown suggestions */}
+                    {/* Location — Live search with Nominatim */}
                     <div className="relative">
                         <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-2">
                             <MapPin size={12} /> Pickup Location
                         </label>
-                        <input
-                            value={location}
-                            onChange={(e) => { setLocation(e.target.value); setShowLocationDropdown(true); setLocationError(''); }}
-                            onFocus={() => setShowLocationDropdown(true)}
-                            onBlur={() => setTimeout(() => setShowLocationDropdown(false), 150)}
-                            placeholder="e.g. T Nagar, Chennai"
-                            className={`w-full h-14 px-5 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 focus:ring-ios-blue transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${locationError ? 'ring-2 ring-ios-systemRed' : ''}`}
-                        />
+                        <div className="relative">
+                            <input
+                                value={location}
+                                onChange={(e) => handleLocationChange(e.target.value)}
+                                onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
+                                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                                placeholder="Type area name, e.g. Royapettah, T Nagar..."
+                                className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 focus:ring-ios-blue transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${locationError ? 'ring-2 ring-ios-systemRed' : ''} ${selectedLat !== null ? 'ring-2 ring-emerald-500' : ''}`}
+                            />
+                            {/* Status indicator */}
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                {isSearching ? (
+                                    <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                        className="w-5 h-5 border-2 border-ios-blue/30 border-t-ios-blue rounded-full"
+                                    />
+                                ) : selectedLat !== null ? (
+                                    <Check size={18} className="text-emerald-500" />
+                                ) : location.length >= 2 ? (
+                                    <MapPin size={18} className="text-ios-systemGray/40" />
+                                ) : null}
+                            </div>
+                        </div>
 
-                        {/* Suggestions (only shows when focused and no text or matching text) */}
-                        {showLocationDropdown && (
-                            <div className="absolute top-full left-0 right-0 mt-2 z-30 glass-panel rounded-2xl shadow-2xl overflow-hidden max-h-44 overflow-y-auto no-scrollbar">
-                                {LOCATION_SUGGESTIONS
-                                    .filter(s => !location || s.toLowerCase().includes(location.toLowerCase()))
-                                    .map(suggestion => (
+                        {/* Live suggestions dropdown */}
+                        {showDropdown && suggestions.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-2 z-30 glass-panel rounded-2xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto no-scrollbar">
+                                {suggestions.map((s, idx) => {
+                                    // Show a short readable name
+                                    const parts = s.display_name.split(',');
+                                    const shortName = parts.slice(0, 3).join(',').trim();
+                                    return (
                                         <button
-                                            key={suggestion}
-                                            onMouseDown={() => {
-                                                setLocation(suggestion);
-                                                setShowLocationDropdown(false);
-                                            }}
-                                            className="w-full px-5 py-3 text-left text-sm font-semibold hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.03] dark:border-white/[0.03] last:border-none flex items-center gap-3"
+                                            key={`${s.lat}-${s.lon}-${idx}`}
+                                            onMouseDown={() => handleSelectSuggestion(s)}
+                                            className="w-full px-5 py-3.5 text-left text-sm font-semibold hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.03] dark:border-white/[0.03] last:border-none flex items-center gap-3"
                                         >
                                             <MapPin size={14} className="text-ios-blue shrink-0" />
-                                            {suggestion}
+                                            <span className="truncate">{shortName}</span>
                                         </button>
-                                    ))
-                                }
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
 
+                    {/* Selected location info */}
+                    {selectedLat !== null && selectedLng !== null && (
+                        <div className="flex items-center gap-2 px-1 -mt-3">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                                📍 Location set: {location}
+                            </span>
+                        </div>
+                    )}
+
                     {/* Location Error */}
                     {locationError && (
-                        <p className="text-ios-systemRed text-sm font-semibold px-1 -mt-2">{locationError}</p>
+                        <p className="text-ios-systemRed text-sm font-semibold px-1 -mt-3">{locationError}</p>
                     )}
                 </div>
             </div>
