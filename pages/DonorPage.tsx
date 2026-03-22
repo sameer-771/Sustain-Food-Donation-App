@@ -31,6 +31,8 @@ interface DonorPageProps {
         category: string;
         servings: string;
         location: string;
+        lat: number;
+        lng: number;
         imagePreviewUrl: string | null;
         freshness: string | null;
     }) => void;
@@ -48,25 +50,48 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [freshness, setFreshness] = useState<FreshnessLevel | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [locationError, setLocationError] = useState('');
 
-    const canSubmit = foodName.trim() && !isSubmitting;
+    const canSubmit = foodName.trim() && location.trim() && !isSubmitting;
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!canSubmit) return;
         setIsSubmitting(true);
-        setTimeout(() => {
+        setLocationError('');
+
+        try {
+            // Geocode location via Nominatim
+            const res = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location.trim())}`
+            );
+            const data = await res.json();
+
+            if (!data || data.length === 0) {
+                setLocationError('Invalid location. Please enter a valid area/city.');
+                setIsSubmitting(false);
+                return;
+            }
+
+            const lat = parseFloat(data[0].lat);
+            const lng = parseFloat(data[0].lon);
+
             onDonate({
                 foodName,
                 description,
                 category,
                 servings,
-                location,
+                location: location.trim(),
+                lat,
+                lng,
                 imagePreviewUrl,
                 freshness,
             });
             setIsSubmitting(false);
             setIsSubmitted(true);
-        }, 1500);
+        } catch (err) {
+            setLocationError('Unable to fetch location. Please try again.');
+            setIsSubmitting(false);
+        }
     };
 
     const handleReset = () => {
@@ -214,11 +239,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         </label>
                         <input
                             value={location}
-                            onChange={(e) => { setLocation(e.target.value); setShowLocationDropdown(true); }}
+                            onChange={(e) => { setLocation(e.target.value); setShowLocationDropdown(true); setLocationError(''); }}
                             onFocus={() => setShowLocationDropdown(true)}
                             onBlur={() => setTimeout(() => setShowLocationDropdown(false), 150)}
-                            placeholder="Type address or pick a suggestion..."
-                            className="w-full h-14 px-5 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 focus:ring-ios-blue transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px]"
+                            placeholder="e.g. T Nagar, Chennai"
+                            className={`w-full h-14 px-5 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 focus:ring-ios-blue transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${locationError ? 'ring-2 ring-ios-systemRed' : ''}`}
                         />
 
                         {/* Suggestions (only shows when focused and no text or matching text) */}
@@ -243,6 +268,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                             </div>
                         )}
                     </div>
+
+                    {/* Location Error */}
+                    {locationError && (
+                        <p className="text-ios-systemRed text-sm font-semibold px-1 -mt-2">{locationError}</p>
+                    )}
                 </div>
             </div>
 

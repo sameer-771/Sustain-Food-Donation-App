@@ -18,7 +18,7 @@ import {
   getCurrentUser, setCurrentUser, clearCurrentUser,
   loginUser, registerUser,
   getNotifications, saveNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
-  checkAndUpdateExpiry, isSeeded, markSeeded, randomChennaiLocation,
+  checkAndUpdateExpiry, isSeeded, markSeeded,
   User,
 } from './utils/storage';
 
@@ -30,19 +30,6 @@ const FOOD_IMAGES = [
   'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&q=80&w=600',
   'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?auto=format&fit=crop&q=80&w=600',
   'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&q=80&w=600',
-];
-
-const CHENNAI_ADDRESSES = [
-  'T. Nagar, Chennai',
-  'Anna Nagar, Chennai',
-  'Adyar, Chennai',
-  'Velachery, Chennai',
-  'Mylapore, Chennai',
-  'Guindy, Chennai',
-  'Nungambakkam, Chennai',
-  'Tambaram, Chennai',
-  'Porur, Chennai',
-  'Chromepet, Chennai',
 ];
 
 // Pre-seeded listings (used only on first load)
@@ -259,14 +246,14 @@ const App: React.FC = () => {
     category: string;
     servings: string;
     location: string;
+    lat: number;
+    lng: number;
     imagePreviewUrl: string | null;
     freshness: string | null;
   }) => {
     const randomImg = FOOD_IMAGES[Math.floor(Math.random() * FOOD_IMAGES.length)];
     const imgUrl = donation.imagePreviewUrl || randomImg;
     const now = new Date();
-    const loc = randomChennaiLocation();
-    const addr = donation.location || CHENNAI_ADDRESSES[Math.floor(Math.random() * CHENNAI_ADDRESSES.length)];
     const fakeDist = (Math.random() * 4 + 0.2).toFixed(1);
 
     const newListing: FoodListing = {
@@ -283,9 +270,9 @@ const App: React.FC = () => {
         verified: true,
       },
       location: {
-        address: addr,
-        lat: loc.lat,
-        lng: loc.lng,
+        address: donation.location,
+        lat: donation.lat,
+        lng: donation.lng,
         distance: `${fakeDist} km`,
         distanceValue: parseFloat(fakeDist),
       },
