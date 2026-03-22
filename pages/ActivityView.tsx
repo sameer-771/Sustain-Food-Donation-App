@@ -1,12 +1,13 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Bell, CheckCircle, AlertTriangle, MapPin, Heart, ChevronRight, CheckCheck } from 'lucide-react';
+import { Bell, CheckCircle, AlertTriangle, MapPin, Heart, CheckCheck, Eye } from 'lucide-react';
 import { AppNotification } from '../types';
 
 interface ActivityViewProps {
   notifications: AppNotification[];
   onMarkAllRead: () => void;
+  onMarkRead?: (id: string) => void;
 }
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -33,7 +34,7 @@ const formatTime = (timestamp: string): string => {
   return `${Math.floor(hours / 24)}d ago`;
 };
 
-const ActivityView: React.FC<ActivityViewProps> = ({ notifications, onMarkAllRead }) => {
+const ActivityView: React.FC<ActivityViewProps> = ({ notifications, onMarkAllRead, onMarkRead }) => {
   const unread = notifications.filter(n => !n.read).length;
 
   return (
@@ -83,7 +84,17 @@ const ActivityView: React.FC<ActivityViewProps> = ({ notifications, onMarkAllRea
                   {notif.message}
                 </p>
               </div>
-              {!notif.read && (
+              {!notif.read && onMarkRead && (
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => onMarkRead(notif.id)}
+                  className="shrink-0 w-7 h-7 rounded-full bg-ios-blue/10 flex items-center justify-center mt-0.5"
+                  title="Mark as read"
+                >
+                  <Eye size={12} className="text-ios-blue" />
+                </motion.button>
+              )}
+              {!notif.read && !onMarkRead && (
                 <div className="w-2 h-2 bg-ios-blue rounded-full shrink-0 mt-1.5" />
               )}
             </motion.div>

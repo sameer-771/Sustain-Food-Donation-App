@@ -1,11 +1,13 @@
 
 export type UserRole = 'donor' | 'receiver';
 
-export type ViewType = 'home' | 'map' | 'activity' | 'profile';
+export type ViewType = 'home' | 'map' | 'activity' | 'profile' | 'login' | 'signup';
 
 export type FoodCategory = 'Produce' | 'Prepared' | 'Bakery' | 'Dairy' | 'Beverages' | 'Other';
 
 export type FreshnessLevel = 'excellent' | 'good' | 'fair';
+
+export type FoodStatus = 'available' | 'claimed' | 'expired';
 
 export interface DonationItem {
   id: string;
@@ -39,12 +41,15 @@ export interface FoodListing {
     distanceValue: number; // numeric for sorting
   };
   cookedAt: string; // ISO timestamp
+  createdAt: string; // ISO timestamp
   expiresAt: string; // ISO timestamp
   servings: number;
   freshness: FreshnessLevel;
   dietary: string[]; // e.g. ['Vegan', 'Gluten-Free']
-  claimed: boolean;
+  status: FoodStatus;
+  claimed: boolean; // kept for backward compat
   claimedBy?: string;
+  donorEmail?: string; // to track who posted
 }
 
 export interface ImpactStats {

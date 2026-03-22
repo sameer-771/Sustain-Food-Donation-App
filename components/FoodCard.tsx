@@ -40,10 +40,23 @@ const freshnessColor = (freshness: string) => {
     }
 };
 
+const statusBadge = (status: string) => {
+    switch (status) {
+        case 'available': return { label: 'Available', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' };
+        case 'claimed': return { label: 'Claimed', cls: 'bg-ios-blue/10 text-ios-blue border border-ios-blue/20' };
+        case 'expired': return { label: 'Expired', cls: 'bg-ios-systemRed/10 text-ios-systemRed border border-ios-systemRed/20' };
+        default: return { label: status, cls: 'bg-gray-100 text-gray-500' };
+    }
+};
+
 const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
     const [timeSince, setTimeSince] = useState(getTimeSinceCooked(listing.cookedAt));
     const [remaining, setRemaining] = useState(getTimeRemaining(listing.expiresAt));
     const colors = freshnessColor(listing.freshness);
+    const badge = statusBadge(listing.status);
+    const isAvailable = listing.status === 'available';
+    const isClaimed = listing.status === 'claimed';
+    const isExpired = listing.status === 'expired';
 
     // Update timers every 30 seconds
     useEffect(() => {
@@ -54,15 +67,13 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
         return () => clearInterval(interval);
     }, [listing.cookedAt, listing.expiresAt]);
 
-    if (remaining.expired && !listing.claimed) return null; // Hide expired unclaimed items
-
     return (
         <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2, delay: index * 0.03 }}
             whileTap={{ scale: 0.98 }}
-            className={`bg-white dark:bg-ios-darkCard rounded-[2rem] overflow-hidden shadow-[0_8px_30px_-12px_rgba(0,0,0,0.1)] dark:shadow-none border border-black/[0.03] dark:border-white/[0.05] ${listing.claimed ? 'opacity-60' : ''}`}
+            className={`bg-white dark:bg-ios-darkCard rounded-[2rem] overflow-hidden shadow-[0_8px_30px_-12px_rgba(0,0,0,0.1)] dark:shadow-none border border-black/[0.03] dark:border-white/[0.05] ${isClaimed ? 'opacity-60' : ''} ${isExpired ? 'opacity-40' : ''}`}
         >
             <div className="flex">
                 {/* Thumbnail */}
@@ -77,7 +88,7 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                     <div className={`absolute top-2.5 left-2.5 w-2.5 h-2.5 rounded-full ${colors.bg} ring-2 ring-white dark:ring-ios-darkCard`} />
 
                     {/* Countdown Timer Overlay */}
-                    {!listing.claimed && (
+                    {isAvailable && (
                         <div className={`absolute bottom-0 left-0 right-0 px-2 py-1.5 flex items-center justify-center gap-1 ${remaining.urgent
                                 ? 'bg-gradient-to-t from-red-600/90 to-red-600/60'
                                 : 'bg-gradient-to-t from-black/70 to-black/30'
@@ -85,6 +96,15 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                             <Timer size={9} className="text-white/80" />
                             <span className={`text-[9px] font-black uppercase tracking-wide ${remaining.urgent ? 'text-white' : 'text-white/80'}`}>
                                 {remaining.text}
+                            </span>
+                        </div>
+                    )}
+
+                    {/* Status overlay for claimed/expired */}
+                    {(isClaimed || isExpired) && (
+                        <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 flex items-center justify-center gap-1 bg-gradient-to-t from-black/70 to-black/30">
+                            <span className="text-[9px] font-black uppercase tracking-wide text-white">
+                                {badge.label}
                             </span>
                         </div>
                     )}
@@ -112,6 +132,10 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
 
                     {/* Badges Row */}
                     <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+                        {/* Status Badge */}
+                        <div className={`px-2 py-1 rounded-lg text-[10px] font-bold ${badge.cls}`}>
+                            {badge.label}
+                        </div>
                         {/* Time Since Cooked */}
                         <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-500/10 border border-orange-500/15">
                             <Clock size={10} className="text-orange-500" />
@@ -121,10 +145,6 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                         <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-ios-blue/10 border border-ios-blue/15">
                             <MapPin size={10} className="text-ios-blue" />
                             <span className="text-[10px] font-bold text-ios-blue">{listing.location.distance}</span>
-                        </div>
-                        {/* Category */}
-                        <div className={`px-2 py-1 rounded-lg border text-[10px] font-bold ${colors.badge}`}>
-                            {listing.category}
                         </div>
                     </div>
                 </div>
@@ -141,15 +161,18 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                 </div>
                 <motion.button
                     whileTap={{ scale: 0.92 }}
-                    onClick={() => !listing.claimed && onClaim(listing.id)}
-                    disabled={listing.claimed}
-                    className={`flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all ${listing.claimed
+                    onClick={() => isAvailable && onClaim(listing.id)}
+                    disabled={!isAvailable}
+                    className={`flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all ${
+                        isClaimed
                             ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-default'
+                            : isExpired
+                            ? 'bg-red-100 dark:bg-red-500/10 text-red-500 cursor-default'
                             : 'bg-ios-blue text-white shadow-lg shadow-ios-blue/25'
-                        }`}
+                    }`}
                 >
-                    {listing.claimed ? '✓ Claimed' : 'Claim'}
-                    {!listing.claimed && <ChevronRight size={14} />}
+                    {isClaimed ? '✓ Claimed' : isExpired ? '✕ Expired' : 'Claim'}
+                    {isAvailable && <ChevronRight size={14} />}
                 </motion.button>
             </div>
         </motion.div>

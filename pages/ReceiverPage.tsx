@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, SlidersHorizontal, MapPin, ArrowUpDown, Check, X } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, ArrowUpDown, Check, X, PackageX } from 'lucide-react';
 import { FoodListing, FoodCategory } from '../types';
 import FoodCard from '../components/FoodCard';
 import PickupModal from '../components/PickupModal';
@@ -26,9 +26,8 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     const filtered = useMemo(() => {
         let result = [...listings];
 
-        // Only show unexpired
-        const now = Date.now();
-        result = result.filter(l => new Date(l.expiresAt).getTime() > now || l.claimed);
+        // Show only available + claimed (hide expired or show them dimmed)
+        result = result.filter(l => l.status === 'available' || l.status === 'claimed');
 
         if (activeCategory !== 'All') {
             result = result.filter(l => l.category === activeCategory);
@@ -55,10 +54,11 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
 
     const handleClaim = (id: string) => {
         const listing = listings.find(l => l.id === id);
+        if (!listing || listing.status !== 'available') return;
         onClaim(id);
         // Show pickup modal with the claimed listing
         if (listing) {
-            setClaimedListing({ ...listing, claimed: true });
+            setClaimedListing({ ...listing, claimed: true, status: 'claimed' });
         }
     };
 
@@ -67,6 +67,8 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         setClaimedListing(null);
     };
 
+    const availableCount = filtered.filter(l => l.status === 'available').length;
+
     return (
         <div className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth">
             <div className="px-5 pb-40 pt-4">
@@ -74,7 +76,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                 <div className="mb-5">
                     <h1 className="text-3xl font-black tracking-tight mb-1">Available Nearby</h1>
                     <p className="text-ios-systemGray font-semibold text-sm">
-                        {filtered.filter(l => !l.claimed).length} listings within {maxDistance} mi
+                        {availableCount} listings within {maxDistance} km
                     </p>
                 </div>
 
@@ -125,7 +127,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                                         <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest flex items-center gap-1.5">
                                             <MapPin size={11} /> Max Distance
                                         </label>
-                                        <span className="text-[12px] font-black text-ios-blue">{maxDistance} mi</span>
+                                        <span className="text-[12px] font-black text-ios-blue">{maxDistance} km</span>
                                     </div>
                                     <input
                                         type="range" min={0.5} max={10} step={0.5}
@@ -134,7 +136,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                                         className="w-full accent-ios-blue h-1"
                                     />
                                     <div className="flex justify-between text-[9px] text-ios-systemGray/50 font-bold mt-1">
-                                        <span>0.5 mi</span><span>10 mi</span>
+                                        <span>0.5 km</span><span>10 km</span>
                                     </div>
                                 </div>
                                 <div>
@@ -179,7 +181,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                 <div className="flex items-center justify-between px-1 mb-4">
                     <h2 className="text-lg font-black">
                         {activeCategory === 'All' ? 'All Food' : activeCategory}
-                        <span className="text-ios-systemGray font-bold text-sm ml-2">({filtered.filter(l => !l.claimed).length})</span>
+                        <span className="text-ios-systemGray font-bold text-sm ml-2">({availableCount})</span>
                     </h2>
                     <span className="text-[10px] font-bold text-ios-systemGray uppercase">
                         {sortMode === 'nearest' ? '📍 Distance' : '🕐 Freshness'}
@@ -194,8 +196,10 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                         ))
                     ) : (
                         <div className="text-center py-16">
-                            <div className="text-5xl mb-4">🔍</div>
-                            <h3 className="text-lg font-black mb-1">No food found</h3>
+                            <div className="w-16 h-16 bg-ios-blue/5 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <PackageX size={28} className="text-ios-blue/30" />
+                            </div>
+                            <h3 className="text-lg font-black mb-1">No food available nearby</h3>
                             <p className="text-ios-systemGray text-sm font-medium">
                                 Try adjusting your filters or expanding the search radius
                             </p>
