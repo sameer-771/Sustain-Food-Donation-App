@@ -59,13 +59,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
 
     // Live search — debounced 300ms, partial match, scoped to Chennai
-    // Position dropdown below input
+    // Position dropdown ABOVE input so it's not clipped by bottom nav
     const updateDropdownPosition = useCallback(() => {
         if (inputRef.current) {
             const rect = inputRef.current.getBoundingClientRect();
             setDropdownStyle({
                 position: 'fixed' as const,
-                top: rect.bottom + 8,
+                bottom: window.innerHeight - rect.top + 8,
                 left: rect.left,
                 width: rect.width,
                 zIndex: 9999,
