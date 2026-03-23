@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Utensils, MapPin, Send, Check, Camera, Loader } from 'lucide-react';
 import { FoodCategory, FreshnessLevel } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
@@ -54,8 +54,6 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const [showSubmitButton, setShowSubmitButton] = useState(false);
 
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
 
@@ -197,13 +195,8 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     }
 
     return (
-        <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth"
-            onScroll={(e) => {
-                const scrollTop = (e.target as HTMLElement).scrollTop;
-                setShowSubmitButton(scrollTop > 100);
-            }}
-        >
-            <div className="px-5 pb-36 pt-4">
+        <div className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth">
+            <div className="px-5 pb-24 pt-4">
                 {/* Title */}
                 <div className="mb-8">
                     <h1 className="text-3xl font-black tracking-tight mb-1">Share Food</h1>
@@ -393,46 +386,33 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         <p className="text-ios-systemRed text-[13px] font-semibold px-1 -mt-4">{locationError}</p>
                     )}
                 </div>
-            </div>
 
-
-            {/* Submit Button — Fixed Bottom, appears on scroll */}
-            <AnimatePresence>
-                {showSubmitButton && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 30 }}
-                        transition={{ duration: 0.25, ease: 'easeOut' }}
-                        className="fixed bottom-16 left-0 right-0 px-5 z-30 safe-area-bottom"
+                {/* Submit Button — separate section, only visible after scrolling past form */}
+                <div className="mt-16 mb-8">
+                    <motion.button
+                        whileTap={canSubmit ? { scale: 0.97 } : {}}
+                        onClick={handleSubmit}
+                        disabled={!canSubmit}
+                        className={`w-full py-[18px] rounded-2xl font-black text-[15px] tracking-wide flex items-center justify-center gap-2.5 transition-all duration-300 min-h-[52px] ${canSubmit
+                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 active:shadow-md'
+                            : 'bg-gray-200 dark:bg-white/[0.08] text-ios-systemGray cursor-not-allowed'
+                            }`}
                     >
-                        <div className="max-w-md mx-auto">
-                            <motion.button
-                                whileTap={canSubmit ? { scale: 0.97 } : {}}
-                                onClick={handleSubmit}
-                                disabled={!canSubmit}
-                                className={`w-full py-[18px] rounded-2xl font-black text-[15px] tracking-wide flex items-center justify-center gap-2.5 transition-all duration-300 min-h-[52px] ${canSubmit
-                                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 active:shadow-md'
-                                    : 'bg-gray-200 dark:bg-white/[0.08] text-ios-systemGray cursor-not-allowed'
-                                    }`}
-                            >
-                                {isSubmitting ? (
-                                    <motion.div
-                                        animate={{ rotate: 360 }}
-                                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                                        className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                                    />
-                                ) : (
-                                    <>
-                                        <Send size={18} />
-                                        Post Donation
-                                    </>
-                                )}
-                            </motion.button>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                        {isSubmitting ? (
+                            <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                            />
+                        ) : (
+                            <>
+                                <Send size={18} />
+                                Post Donation
+                            </>
+                        )}
+                    </motion.button>
+                </div>
+            </div>
         </div>
     );
 };
