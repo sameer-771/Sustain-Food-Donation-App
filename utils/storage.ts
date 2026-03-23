@@ -1,4 +1,4 @@
-import { FoodListing, AppNotification } from '../types';
+import { FoodListing, AppNotification, Rating } from '../types';
 
 // ── User types ──
 export interface User {
@@ -16,6 +16,7 @@ const KEYS = {
   CURRENT_USER: 'sustain_current_user',
   NOTIFICATIONS: 'sustain_notifications',
   SEEDED: 'sustain_seeded',
+  RATINGS: 'sustain_ratings',
 };
 
 // ── Foods ──
@@ -141,9 +142,17 @@ export const checkAndUpdateExpiry = (): FoodListing[] => {
   let changed = false;
 
   const updated = foods.map(f => {
+    // Expire available items past creation + 5h
     if (f.status === 'available') {
       const createdTime = new Date(f.createdAt || f.cookedAt).getTime();
       if (now - createdTime >= EXPIRY_DURATION) {
+        changed = true;
+        return { ...f, status: 'expired' as const };
+      }
+    }
+    // Expire claimed items past their expiresAt (uncollected)
+    if (f.status === 'claimed' && f.expiresAt) {
+      if (now >= new Date(f.expiresAt).getTime()) {
         changed = true;
         return { ...f, status: 'expired' as const };
       }
@@ -172,4 +181,24 @@ export const randomChennaiLocation = (): { lat: number; lng: number } => {
   const lat = 13.0827 + (Math.random() - 0.5) * 0.08;
   const lng = 80.2707 + (Math.random() - 0.5) * 0.08;
   return { lat: parseFloat(lat.toFixed(4)), lng: parseFloat(lng.toFixed(4)) };
+};
+
+// ── Ratings ──
+export const getRatings = (): Rating[] => {
+  try {
+    const data = localStorage.getItem(KEYS.RATINGS);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const saveRating = (rating: Rating): void => {
+  const ratings = getRatings();
+  ratings.push(rating);
+  localStorage.setItem(KEYS.RATINGS, JSON.stringify(ratings));
+};
+
+export const hasRated = (listingId: string, userId: string): boolean => {
+  return getRatings().some(r => r.listingId === listingId && r.userId === userId);
 };

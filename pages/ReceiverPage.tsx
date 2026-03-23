@@ -1,33 +1,56 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, SlidersHorizontal, MapPin, ArrowUpDown, Check, X, PackageX } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, ArrowUpDown, X, PackageX } from 'lucide-react';
 import { FoodListing, FoodCategory } from '../types';
 import FoodCard from '../components/FoodCard';
 import PickupModal from '../components/PickupModal';
+import RatingModal from '../components/RatingModal';
+import { saveRating, hasRated } from '../utils/storage';
 
 const CATEGORIES: (FoodCategory | 'All')[] = ['All', 'Prepared', 'Bakery', 'Produce', 'Dairy', 'Beverages'];
 type SortMode = 'nearest' | 'freshest';
 
 interface ReceiverPageProps {
     listings: FoodListing[];
-    onClaim: (id: string) => void;
+    onClaim: (id: string) => boolean;
     onPickupConfirmed: (id: string) => void;
+    currentUserEmail: string;
+    currentUserId: string;
 }
 
-const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickupConfirmed }) => {
+const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickupConfirmed, currentUserEmail, currentUserId }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState<FoodCategory | 'All'>('All');
     const [sortMode, setSortMode] = useState<SortMode>('nearest');
     const [showFilters, setShowFilters] = useState(false);
     const [maxDistance, setMaxDistance] = useState<number>(10);
-    const [selectedListing, setSelectedListing] = useState<FoodListing | null>(null);
 
+    // State-based overlays: only one active at a time
+    const [pickupListingId, setPickupListingId] = useState<string | null>(null);
+    const [ratingListingId, setRatingListingId] = useState<string | null>(null);
+    const [claimingId, setClaimingId] = useState<string | null>(null);
+
+    // Persisted claim state: reopen pickup on mount if user has an active claim
+    useEffect(() => {
+        const activeClaim = listings.find(
+            l => l.status === 'claimed' && l.claimedBy === currentUserEmail
+        );
+        if (activeClaim && !pickupListingId && !ratingListingId) {
+            setPickupListingId(activeClaim.id);
+        }
+    }, []); // Only on mount
+
+    // Strict feed filtering
     const filtered = useMemo(() => {
-        let result = [...listings];
-
-        // Show only available + claimed (hide expired or show them dimmed)
-        result = result.filter(l => l.status === 'available' || l.status === 'claimed');
+        let result = listings.filter(l => {
+            // Show available items
+            if (l.status === 'available') return true;
+            // Show items claimed by current user
+            if (l.status === 'claimed' && l.claimedBy === currentUserEmail) return true;
+            // Hide everything else (claimed by others, picked, expired)
+            return false;
+        });
 
         if (activeCategory !== 'All') {
             result = result.filter(l => l.category === activeCategory);
@@ -50,29 +73,61 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         }
 
         return result;
-    }, [listings, activeCategory, searchQuery, sortMode, maxDistance]);
+    }, [listings, activeCategory, searchQuery, sortMode, maxDistance, currentUserEmail]);
 
-    // Step 1: User clicks Claim → show the modal (don't claim yet)
-    const handleClaim = (id: string) => {
-        const listing = listings.find(l => l.id === id);
-        if (!listing || listing.status !== 'available') return;
-        setSelectedListing(listing);
-    };
+    // Claim handler with loading state and debounce
+    const handleClaim = useCallback((id: string) => {
+        if (claimingId) return; // Prevent double-tap
+        setClaimingId(id);
 
-    // Step 2: User confirms claim in the modal → actually claim the food
-    const handleConfirmClaim = (id: string) => {
-        onClaim(id);
-        // Update the selected listing to show pickup details
-        const updated = listings.find(l => l.id === id);
-        if (updated) {
-            setSelectedListing({ ...updated, claimed: true, status: 'claimed' });
-        }
-    };
+        // Small delay to show loading state, then process
+        setTimeout(() => {
+            const success = onClaim(id);
+            if (success) {
+                // Immediately open pickup screen
+                setPickupListingId(id);
+            }
+            setClaimingId(null);
+        }, 300);
+    }, [claimingId, onClaim]);
 
-    const handlePickupConfirmed = (id: string) => {
+    // View pickup for already-claimed items
+    const handleViewPickup = useCallback((id: string) => {
+        setPickupListingId(id);
+    }, []);
+
+    // Pickup confirmed → close pickup, show rating if not already rated
+    const handlePickupConfirmed = useCallback((id: string) => {
         onPickupConfirmed(id);
-        setSelectedListing(null);
-    };
+        setPickupListingId(null);
+
+        // Show rating modal if not already rated
+        if (!hasRated(id, currentUserId)) {
+            // Small delay so pickup modal exit animation completes
+            setTimeout(() => setRatingListingId(id), 350);
+        }
+    }, [onPickupConfirmed, currentUserId]);
+
+    // Rating handlers
+    const handleRatingSubmit = useCallback((rating: number, feedback: string) => {
+        if (!ratingListingId) return;
+        saveRating({
+            listingId: ratingListingId,
+            userId: currentUserId,
+            rating,
+            feedback: feedback || undefined,
+            timestamp: new Date().toISOString(),
+        });
+        setRatingListingId(null);
+    }, [ratingListingId, currentUserId]);
+
+    const handleRatingSkip = useCallback(() => {
+        setRatingListingId(null);
+    }, []);
+
+    // Resolve listings for modals
+    const pickupListing = pickupListingId ? listings.find(l => l.id === pickupListingId) : null;
+    const ratingListing = ratingListingId ? listings.find(l => l.id === ratingListingId) : null;
 
     const availableCount = filtered.filter(l => l.status === 'available').length;
 
@@ -199,7 +254,15 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                 <div className="space-y-4">
                     {filtered.length > 0 ? (
                         filtered.map((listing, idx) => (
-                            <FoodCard key={listing.id} listing={listing} onClaim={handleClaim} index={idx} />
+                            <FoodCard
+                                key={listing.id}
+                                listing={listing}
+                                onClaim={handleClaim}
+                                onViewPickup={handleViewPickup}
+                                currentUserEmail={currentUserEmail}
+                                isClaimLoading={claimingId === listing.id}
+                                index={idx}
+                            />
                         ))
                     ) : (
                         <div className="text-center py-16">
@@ -215,14 +278,24 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                 </div>
             </div>
 
-            {/* Pickup Modal */}
+            {/* Pickup Modal — only one active screen at a time */}
             <AnimatePresence>
-                {selectedListing && (
+                {pickupListing && pickupListing.status === 'claimed' && !ratingListingId && (
                     <PickupModal
-                        listing={selectedListing}
-                        onClose={() => setSelectedListing(null)}
-                        onConfirmClaim={handleConfirmClaim}
+                        listing={pickupListing}
+                        onClose={() => setPickupListingId(null)}
                         onConfirmPickup={handlePickupConfirmed}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Rating Modal */}
+            <AnimatePresence>
+                {ratingListing && (
+                    <RatingModal
+                        listingTitle={ratingListing.title}
+                        onSubmit={handleRatingSubmit}
+                        onSkip={handleRatingSkip}
                     />
                 )}
             </AnimatePresence>

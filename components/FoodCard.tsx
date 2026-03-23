@@ -1,12 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, MapPin, ShieldCheck, Star, ChevronRight, Timer } from 'lucide-react';
+import { Clock, MapPin, ShieldCheck, Star, ChevronRight, Timer, Eye, Loader2 } from 'lucide-react';
 import { FoodListing } from '../types';
 
 interface FoodCardProps {
     listing: FoodListing;
     onClaim: (id: string) => void;
+    onViewPickup?: (id: string) => void;
+    currentUserEmail?: string;
+    isClaimLoading?: boolean;
     index: number;
 }
 
@@ -40,23 +43,12 @@ const freshnessColor = (freshness: string) => {
     }
 };
 
-const statusBadge = (status: string) => {
-    switch (status) {
-        case 'available': return { label: 'Available', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' };
-        case 'claimed': return { label: 'Claimed', cls: 'bg-ios-blue/10 text-ios-blue border border-ios-blue/20' };
-        case 'expired': return { label: 'Expired', cls: 'bg-ios-systemRed/10 text-ios-systemRed border border-ios-systemRed/20' };
-        default: return { label: status, cls: 'bg-gray-100 text-gray-500' };
-    }
-};
-
-const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
+const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, currentUserEmail, isClaimLoading, index }) => {
     const [timeSince, setTimeSince] = useState(getTimeSinceCooked(listing.cookedAt));
     const [remaining, setRemaining] = useState(getTimeRemaining(listing.expiresAt));
     const colors = freshnessColor(listing.freshness);
-    const badge = statusBadge(listing.status);
     const isAvailable = listing.status === 'available';
-    const isClaimed = listing.status === 'claimed';
-    const isExpired = listing.status === 'expired';
+    const isClaimedByMe = listing.status === 'claimed' && listing.claimedBy === currentUserEmail;
 
     // Update timers every 30 seconds
     useEffect(() => {
@@ -73,7 +65,7 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2, delay: index * 0.03 }}
             whileTap={{ scale: 0.98 }}
-            className={`bg-white dark:bg-ios-darkCard rounded-[2rem] overflow-hidden shadow-[0_8px_30px_-12px_rgba(0,0,0,0.1)] dark:shadow-none border border-black/[0.03] dark:border-white/[0.05] ${isClaimed ? 'opacity-60' : ''} ${isExpired ? 'opacity-40' : ''}`}
+            className="bg-white dark:bg-ios-darkCard rounded-[2rem] overflow-hidden shadow-[0_8px_30px_-12px_rgba(0,0,0,0.1)] dark:shadow-none border border-black/[0.03] dark:border-white/[0.05]"
         >
             <div className="flex">
                 {/* Thumbnail */}
@@ -100,11 +92,11 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                         </div>
                     )}
 
-                    {/* Status overlay for claimed/expired */}
-                    {(isClaimed || isExpired) && (
-                        <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 flex items-center justify-center gap-1 bg-gradient-to-t from-black/70 to-black/30">
+                    {/* Claimed by you overlay */}
+                    {isClaimedByMe && (
+                        <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 flex items-center justify-center gap-1 bg-gradient-to-t from-ios-blue/90 to-ios-blue/60">
                             <span className="text-[9px] font-black uppercase tracking-wide text-white">
-                                {badge.label}
+                                Claimed by you
                             </span>
                         </div>
                     )}
@@ -132,10 +124,6 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
 
                     {/* Badges Row */}
                     <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
-                        {/* Status Badge */}
-                        <div className={`px-2 py-1 rounded-lg text-[10px] font-bold ${badge.cls}`}>
-                            {badge.label}
-                        </div>
                         {/* Time Since Cooked */}
                         <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-500/10 border border-orange-500/15">
                             <Clock size={10} className="text-orange-500" />
@@ -150,7 +138,7 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                 </div>
             </div>
 
-            {/* Dietary Tags + Claim */}
+            {/* Dietary Tags + Action Button */}
             <div className="px-4 pb-4 flex items-center justify-between">
                 <div className="flex gap-1 flex-wrap">
                     {listing.dietary.map(tag => (
@@ -159,21 +147,42 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, index }) => {
                         </span>
                     ))}
                 </div>
-                <motion.button
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => isAvailable && onClaim(listing.id)}
-                    disabled={!isAvailable}
-                    className={`flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all ${
-                        isClaimed
-                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-default'
-                            : isExpired
-                            ? 'bg-red-100 dark:bg-red-500/10 text-red-500 cursor-default'
-                            : 'bg-ios-blue text-white shadow-lg shadow-ios-blue/25'
-                    }`}
-                >
-                    {isClaimed ? '✓ Claimed' : isExpired ? '✕ Expired' : 'Claim'}
-                    {isAvailable && <ChevronRight size={14} />}
-                </motion.button>
+
+                {isAvailable && (
+                    <motion.button
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => !isClaimLoading && onClaim(listing.id)}
+                        disabled={isClaimLoading}
+                        className={`flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all ${
+                            isClaimLoading
+                                ? 'bg-ios-blue/60 text-white/80 cursor-wait'
+                                : 'bg-ios-blue text-white shadow-lg shadow-ios-blue/25'
+                        }`}
+                    >
+                        {isClaimLoading ? (
+                            <>
+                                <Loader2 size={14} className="animate-spin" />
+                                Claiming...
+                            </>
+                        ) : (
+                            <>
+                                Claim
+                                <ChevronRight size={14} />
+                            </>
+                        )}
+                    </motion.button>
+                )}
+
+                {isClaimedByMe && onViewPickup && (
+                    <motion.button
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => onViewPickup(listing.id)}
+                        className="flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 transition-all"
+                    >
+                        <Eye size={14} />
+                        View Pickup
+                    </motion.button>
+                )}
             </div>
         </motion.div>
     );

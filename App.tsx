@@ -298,12 +298,18 @@ const App: React.FC = () => {
     });
   }, [pushNotification, currentUser]);
 
-  // --- Receiver claims ---
-  const handleClaimListing = useCallback((id: string) => {
-    const listing = listings.find(l => l.id === id);
-    if (!listing || listing.status !== 'available') return;
+  // --- Receiver claims (race-condition safe) ---
+  const handleClaimListing = useCallback((id: string): boolean => {
+    // Re-read from localStorage for atomic validation
+    const freshFoods = getFoods();
+    const listing = freshFoods.find(l => l.id === id);
+    if (!listing) return false;
 
-    const updated = updateFood(id, { status: 'claimed', claimed: true, claimedBy: currentUser?.name || 'Receiver' });
+    // Validate: must be available and not expired
+    if (listing.status !== 'available') return false;
+    if (Date.now() >= new Date(listing.expiresAt).getTime()) return false;
+
+    const updated = updateFood(id, { status: 'claimed', claimed: true, claimedBy: currentUser?.email || 'unknown' });
     setListings(updated);
 
     pushNotification({
@@ -312,13 +318,13 @@ const App: React.FC = () => {
       message: `"${listing.title}" was claimed successfully. Head to ${listing.location.address} for pickup.`,
       relatedListingId: id,
     });
-  }, [listings, pushNotification, currentUser]);
+    return true;
+  }, [pushNotification, currentUser]);
 
-  // --- Pickup confirmed ---
+  // --- Pickup confirmed (mark as picked, don't delete) ---
   const handlePickupConfirmed = useCallback((id: string) => {
     const listing = listings.find(l => l.id === id);
-    const updated = getFoods().filter(l => l.id !== id);
-    saveFoods(updated);
+    const updated = updateFood(id, { status: 'picked' });
     setListings(updated);
 
     if (listing) {
@@ -404,6 +410,8 @@ const App: React.FC = () => {
                 listings={listings}
                 onClaim={handleClaimListing}
                 onPickupConfirmed={handlePickupConfirmed}
+                currentUserEmail={currentUser?.email || ''}
+                currentUserId={currentUser?.id || ''}
               />
             )}
             {activeView === 'map' && (

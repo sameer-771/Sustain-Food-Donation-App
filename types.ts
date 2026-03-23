@@ -7,7 +7,15 @@ export type FoodCategory = 'Produce' | 'Prepared' | 'Bakery' | 'Dairy' | 'Bevera
 
 export type FreshnessLevel = 'excellent' | 'good' | 'fair';
 
-export type FoodStatus = 'available' | 'claimed' | 'expired';
+export type FoodStatus = 'available' | 'claimed' | 'picked' | 'expired';
+
+export interface Rating {
+  listingId: string;
+  userId: string;
+  rating: number; // 1–5
+  feedback?: string;
+  timestamp: string;
+}
 
 export interface DonationItem {
   id: string;
