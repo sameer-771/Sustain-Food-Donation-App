@@ -13,8 +13,8 @@ interface BottomNavProps {
 
 const BottomNav: React.FC<BottomNavProps> = ({ activeView, onViewChange, userRole, notificationCount = 0 }) => {
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-[400px] z-[70]">
-      <div className="glass-panel rounded-[2.5rem] px-8 py-3 flex items-center justify-between shadow-2xl shadow-black/10">
+    <div className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto z-[70]">
+      <div className="glass-panel rounded-t-[2rem] px-8 py-3 safe-area-bottom flex items-center justify-between shadow-2xl shadow-black/10">
         <NavIcon
           active={activeView === 'home'}
           onClick={() => onViewChange('home')}

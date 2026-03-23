@@ -133,7 +133,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
 
     return (
         <div className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth">
-            <div className="px-5 pb-40 pt-4">
+            <div className="px-5 pb-28 safe-area-bottom pt-4">
                 {/* Title */}
                 <div className="mb-5">
                     <h1 className="text-3xl font-black tracking-tight mb-1">Available Nearby</h1>

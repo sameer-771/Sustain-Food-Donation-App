@@ -60,6 +60,13 @@
                 -ms-overflow-style: none;
                 scrollbar-width: none;
             }
+            /* Safe area utilities for mobile */
+            .safe-area-bottom {
+                padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+            }
+            .safe-area-modal-bottom {
+                padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+            }
         }
         body {
             @apply bg-[#F2F2F7] dark:bg-black transition-colors duration-300;

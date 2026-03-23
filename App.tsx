@@ -392,7 +392,7 @@ const App: React.FC = () => {
       )}
 
       {/* Main View Container */}
-      <main className="flex-1 relative z-10 overflow-hidden">
+      <main className="flex-1 relative overflow-hidden">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={activeView === 'home' ? `home-${userRole}` : activeView}
@@ -416,7 +416,7 @@ const App: React.FC = () => {
             )}
             {activeView === 'map' && (
               <MapView
-                listings={listings}
+                listings={listings.filter(l => l.status === 'available')}
                 onClaim={handleClaimListing}
               />
             )}

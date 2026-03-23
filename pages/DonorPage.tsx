@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Utensils, MapPin, Send, Check, Camera, Loader } from 'lucide-react';
 import { FoodCategory, FreshnessLevel } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
@@ -54,23 +54,15 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [showSubmitButton, setShowSubmitButton] = useState(false);
 
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
 
     // Live search — debounced 300ms, partial match, scoped to Chennai
     // Position dropdown ABOVE input so it's not clipped by bottom nav
     const updateDropdownPosition = useCallback(() => {
-        if (inputRef.current) {
-            const rect = inputRef.current.getBoundingClientRect();
-            setDropdownStyle({
-                position: 'fixed' as const,
-                bottom: window.innerHeight - rect.top + 8,
-                left: rect.left,
-                width: rect.width,
-                zIndex: 9999,
-            });
-        }
+        // No-op: dropdown now uses CSS absolute positioning
     }, []);
 
     useEffect(() => {
@@ -205,8 +197,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     }
 
     return (
-        <div className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth">
-            <div className="px-5 pb-48 pt-4">
+        <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth"
+            onScroll={(e) => {
+                const scrollTop = (e.target as HTMLElement).scrollTop;
+                setShowSubmitButton(scrollTop > 100);
+            }}
+        >
+            <div className="px-5 pb-36 pt-4">
                 {/* Title */}
                 <div className="mb-8">
                     <h1 className="text-3xl font-black tracking-tight mb-1">Share Food</h1>
@@ -298,7 +295,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                     />
 
                     {/* Location — Live search with Nominatim */}
-                    <div className="relative">
+                    <div className="relative z-[100]">
                         <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-3">
                             <MapPin size={12} /> Pickup Location
                         </label>
@@ -309,12 +306,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                                 onChange={(e) => handleLocationChange(e.target.value)}
                                 onFocus={() => {
                                     if (suggestions.length > 0 && selectedLat === null) {
-                                        updateDropdownPosition();
                                         setShowDropdown(true);
                                     }
                                 }}
                                 onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
-                                placeholder="Type area name, e.g. Roya..."
+                                placeholder="Type area name, e.g. Royapuram..."
                                 className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${
                                     locationError
                                         ? 'ring-2 ring-ios-systemRed focus:ring-ios-systemRed'
@@ -338,6 +334,48 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                                 ) : null}
                             </div>
                         </div>
+
+                        {/* Suggestions dropdown — directly below input */}
+                        {showDropdown && suggestions.length > 0 && (
+                            <div
+                                ref={dropdownRef}
+                                className="absolute left-0 right-0 top-[calc(100%+4px)] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden z-[9999]"
+                            >
+                                <div
+                                    className="overflow-y-auto"
+                                    style={{ maxHeight: '220px' }}
+                                >
+                                    {suggestions.map((s, idx) => {
+                                        const parts = s.display_name.split(',');
+                                        const primary = parts[0].trim();
+                                        const secondary = parts.slice(1, 3).join(',').trim();
+                                        return (
+                                            <button
+                                                key={`${s.lat}-${s.lon}-${idx}`}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    handleSelectSuggestion(s);
+                                                }}
+                                                onTouchEnd={(e) => {
+                                                    e.preventDefault();
+                                                    handleSelectSuggestion(s);
+                                                }}
+                                                className="w-full px-4 py-4 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.04] dark:border-white/[0.04] last:border-none flex items-start gap-3 cursor-pointer"
+                                            >
+                                                <div className="w-9 h-9 rounded-xl bg-ios-blue/10 flex items-center justify-center shrink-0 mt-0.5">
+                                                    <MapPin size={16} className="text-ios-blue" />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-[14px] font-bold truncate">{primary}</div>
+                                                    <div className="text-[11px] text-ios-systemGray font-medium truncate">{secondary}</div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Selected location confirmation */}
@@ -357,72 +395,44 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                 </div>
             </div>
 
-            {/* Fixed-position suggestions dropdown (rendered outside scroll container) */}
-            {showDropdown && suggestions.length > 0 && (
-                <div
-                    ref={dropdownRef}
-                    style={dropdownStyle}
-                    className="bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden"
-                >
-                    <div
-                        className="overflow-y-auto"
-                        style={{ maxHeight: '200px' }}
-                    >
-                        {suggestions.map((s, idx) => {
-                            const parts = s.display_name.split(',');
-                            const primary = parts[0].trim();
-                            const secondary = parts.slice(1, 3).join(',').trim();
-                            return (
-                                <button
-                                    key={`${s.lat}-${s.lon}-${idx}`}
-                                    onMouseDown={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        handleSelectSuggestion(s);
-                                    }}
-                                    className="w-full px-4 py-3.5 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.04] dark:border-white/[0.04] last:border-none flex items-start gap-3 cursor-pointer"
-                                >
-                                    <div className="w-8 h-8 rounded-xl bg-ios-blue/10 flex items-center justify-center shrink-0 mt-0.5">
-                                        <MapPin size={14} className="text-ios-blue" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-[14px] font-bold truncate">{primary}</div>
-                                        <div className="text-[11px] text-ios-systemGray font-medium truncate">{secondary}</div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
 
-            {/* Submit Button — Fixed Bottom */}
-            <div className="fixed bottom-20 left-0 right-0 px-5 z-30 pb-4">
-                <div className="max-w-md mx-auto">
-                    <motion.button
-                        whileTap={canSubmit ? { scale: 0.97 } : {}}
-                        onClick={handleSubmit}
-                        disabled={!canSubmit}
-                        className={`w-full py-[18px] rounded-2xl font-black text-[15px] tracking-wide flex items-center justify-center gap-2.5 transition-all duration-300 ${canSubmit
-                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 active:shadow-md'
-                            : 'bg-gray-200 dark:bg-white/[0.08] text-ios-systemGray cursor-not-allowed'
-                            }`}
+            {/* Submit Button — Fixed Bottom, appears on scroll */}
+            <AnimatePresence>
+                {showSubmitButton && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 30 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                        className="fixed bottom-16 left-0 right-0 px-5 z-30 safe-area-bottom"
                     >
-                        {isSubmitting ? (
-                            <motion.div
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                                className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                            />
-                        ) : (
-                            <>
-                                <Send size={18} />
-                                Post Donation
-                            </>
-                        )}
-                    </motion.button>
-                </div>
-            </div>
+                        <div className="max-w-md mx-auto">
+                            <motion.button
+                                whileTap={canSubmit ? { scale: 0.97 } : {}}
+                                onClick={handleSubmit}
+                                disabled={!canSubmit}
+                                className={`w-full py-[18px] rounded-2xl font-black text-[15px] tracking-wide flex items-center justify-center gap-2.5 transition-all duration-300 min-h-[52px] ${canSubmit
+                                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 active:shadow-md'
+                                    : 'bg-gray-200 dark:bg-white/[0.08] text-ios-systemGray cursor-not-allowed'
+                                    }`}
+                            >
+                                {isSubmitting ? (
+                                    <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                        className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                                    />
+                                ) : (
+                                    <>
+                                        <Send size={18} />
+                                        Post Donation
+                                    </>
+                                )}
+                            </motion.button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

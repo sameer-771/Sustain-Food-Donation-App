@@ -106,23 +106,23 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPi
                 transition={{ type: 'tween', duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
                 onClick={(e) => e.stopPropagation()}
                 className="relative w-full max-w-md bg-ios-lightBg dark:bg-ios-darkBg rounded-t-[2rem] overflow-hidden"
-                style={{ maxHeight: '85vh' }}
+                style={{ maxHeight: '90dvh' }}
             >
                 {/* Handle */}
                 <div className="flex justify-center pt-3 pb-1 sticky top-0 bg-ios-lightBg dark:bg-ios-darkBg z-10">
                     <div className="w-10 h-1 rounded-full bg-black/10 dark:bg-white/10" />
                 </div>
 
-                {/* Close Button */}
+                {/* Close Button — larger touch target */}
                 <button
                     onClick={onClose}
-                    className="absolute top-3 right-4 w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center z-20"
+                    className="absolute top-3 right-4 w-11 h-11 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center z-20"
                 >
-                    <X size={16} className="text-ios-systemGray" />
+                    <X size={18} className="text-ios-systemGray" />
                 </button>
 
                 {/* Scrollable Content */}
-                <div className="overflow-y-auto overscroll-contain px-5 pt-1 pb-10 space-y-3.5" style={{ maxHeight: 'calc(85vh - 32px)' }}>
+                <div className="overflow-y-auto overscroll-contain px-5 pt-1 pb-32 safe-area-modal-bottom space-y-3.5" style={{ maxHeight: 'calc(90dvh - 32px)' }}>
                     {/* Food Image */}
                     <div className="w-full h-44 rounded-2xl overflow-hidden shadow-lg">
                         <img src={listing.imageUrl || listing.thumbnailUrl} alt={listing.title} className="w-full h-full object-cover" />
@@ -189,24 +189,24 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPi
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="space-y-2 pt-1">
+                    <div className="space-y-2.5 pt-1">
                         <button
                             onClick={() => onConfirmPickup(listing.id)}
-                            className="w-full py-3.5 rounded-2xl bg-emerald-500 text-white font-black text-[13px] uppercase tracking-wider shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                            className="w-full py-4 min-h-[48px] rounded-2xl bg-emerald-500 text-white font-black text-[14px] uppercase tracking-wider shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                         >
-                            <CheckCircle size={16} />
+                            <CheckCircle size={18} />
                             I've Picked Up the Food
                         </button>
                         <button
                             onClick={handleOpenInMaps}
-                            className="w-full py-3 rounded-2xl bg-ios-blue/10 text-ios-blue font-bold text-[13px] flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                            className="w-full py-3.5 min-h-[48px] rounded-2xl bg-ios-blue/10 text-ios-blue font-bold text-[13px] flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                         >
                             <ExternalLink size={14} />
                             Open in Google Maps
                         </button>
                         <button
                             onClick={onClose}
-                            className="w-full py-3 rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
+                            className="w-full py-3.5 min-h-[48px] rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
                         >
                             Close
                         </button>

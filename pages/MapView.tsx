@@ -54,15 +54,11 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
     filtered.forEach(listing => {
       if (!listing.location.lat || !listing.location.lng) return;
 
-      let color = '#34C759';
-      let label = 'Available';
-      if (listing.status === 'claimed') {
-        color = '#007AFF';
-        label = 'Claimed';
-      } else if (listing.status === 'expired') {
-        color = '#FF3B30';
-        label = 'Expired';
-      }
+      // Only show available items on the map
+      if (listing.status !== 'available') return;
+
+      const color = '#34C759';
+      const label = 'Available';
 
       const icon = L.divIcon({
         className: 'custom-marker',
@@ -150,10 +146,10 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
   return (
     <div className="relative w-full h-full overflow-hidden">
       {/* Header with Search */}
-      <div className="absolute top-0 left-0 right-0 z-[1000] pt-3 px-4 pb-3" style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+      <div className="absolute top-0 left-0 right-0 z-[1000] pt-3 px-4 pb-3 bg-white/[0.92] dark:bg-ios-darkBg/[0.92] backdrop-blur-xl" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <div className="flex items-center justify-between mb-2.5">
           <div>
-            <h1 className="text-xl font-black tracking-tight">Food Map</h1>
+            <h1 className="text-xl font-black tracking-tight text-black dark:text-white">Food Map</h1>
             <p className="text-ios-systemGray font-semibold text-[11px]">
               {availableCount} available near you
             </p>
@@ -169,7 +165,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setIsSearchFocused(false)}
             placeholder="Search food, location, donor..."
-            className={`w-full h-10 pl-10 pr-10 rounded-xl bg-black/5 dark:bg-white/10 border-none text-[13px] font-semibold placeholder:text-ios-systemGray/50 focus:outline-none focus:ring-2 focus:ring-ios-blue/50 transition-all ${
+            className={`w-full h-10 pl-10 pr-10 rounded-xl bg-black/5 dark:bg-white/10 border-none text-[13px] font-semibold text-black dark:text-white placeholder:text-ios-systemGray/50 focus:outline-none focus:ring-2 focus:ring-ios-blue/50 transition-all ${
               isSearchFocused ? 'bg-white dark:bg-ios-darkCard shadow-sm' : ''
             }`}
           />
@@ -185,19 +181,11 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
       </div>
 
       {/* Legend */}
-      <div className="absolute bottom-6 left-4 z-[1000] glass-panel rounded-2xl px-4 py-2.5 shadow-lg">
+      <div className="absolute bottom-20 left-4 z-[1000] glass-panel rounded-2xl px-4 py-2.5 shadow-lg safe-area-bottom">
         <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wide">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-full bg-[#34C759]" />
             <span>Available</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-[#007AFF]" />
-            <span>Claimed</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-[#FF3B30]" />
-            <span>Expired</span>
           </div>
         </div>
       </div>

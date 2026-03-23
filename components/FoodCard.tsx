@@ -153,7 +153,7 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, cur
                         whileTap={{ scale: 0.92 }}
                         onClick={() => !isClaimLoading && onClaim(listing.id)}
                         disabled={isClaimLoading}
-                        className={`flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all ${
+                        className={`flex items-center gap-1.5 px-5 py-2.5 min-h-[44px] rounded-xl text-[12px] font-black uppercase tracking-wide transition-all ${
                             isClaimLoading
                                 ? 'bg-ios-blue/60 text-white/80 cursor-wait'
                                 : 'bg-ios-blue text-white shadow-lg shadow-ios-blue/25'
@@ -177,7 +177,7 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, cur
                     <motion.button
                         whileTap={{ scale: 0.92 }}
                         onClick={() => onViewPickup(listing.id)}
-                        className="flex items-center gap-1 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 transition-all"
+                        className="flex items-center gap-1.5 px-5 py-2.5 min-h-[44px] rounded-xl text-[12px] font-black uppercase tracking-wide bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 transition-all"
                     >
                         <Eye size={14} />
                         View Pickup

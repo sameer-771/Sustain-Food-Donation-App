@@ -37,7 +37,7 @@ const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSki
         exit={{ y: '100%' }}
         transition={{ type: 'tween', duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-md bg-ios-lightBg dark:bg-ios-darkBg rounded-t-[2rem] overflow-hidden"
+        className="relative w-full max-w-md bg-ios-lightBg dark:bg-ios-darkBg rounded-t-[2rem] overflow-y-auto" style={{ maxHeight: '90dvh' }}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
@@ -47,12 +47,12 @@ const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSki
         {/* Close */}
         <button
           onClick={onSkip}
-          className="absolute top-3 right-4 w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center z-20"
+          className="absolute top-3 right-4 w-11 h-11 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center z-20"
         >
-          <X size={16} className="text-ios-systemGray" />
+          <X size={18} className="text-ios-systemGray" />
         </button>
 
-        <div className="px-6 pt-2 pb-10 space-y-5">
+        <div className="px-6 pt-2 pb-28 safe-area-modal-bottom space-y-5">
           {/* Header */}
           <div className="text-center">
             <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-3">
@@ -106,7 +106,7 @@ const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSki
             <button
               onClick={() => rating > 0 && onSubmit(rating, feedback)}
               disabled={rating === 0}
-              className={`w-full py-4 rounded-2xl font-black text-[14px] uppercase tracking-wider flex items-center justify-center gap-2 active:scale-[0.97] transition-all ${
+              className={`w-full py-4 min-h-[48px] rounded-2xl font-black text-[14px] uppercase tracking-wider flex items-center justify-center gap-2 active:scale-[0.97] transition-all ${
                 rating > 0
                   ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/25'
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -116,7 +116,7 @@ const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSki
             </button>
             <button
               onClick={onSkip}
-              className="w-full py-3 rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
+              className="w-full py-3.5 min-h-[48px] rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
             >
               Skip
             </button>
