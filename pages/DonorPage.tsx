@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Utensils, MapPin, Send, Check, Camera, Loader } from 'lucide-react';
+import { Utensils, MapPin, Send, Check } from 'lucide-react';
 import { FoodCategory, FreshnessLevel } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
 
@@ -50,12 +50,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [freshness, setFreshness] = useState<FreshnessLevel | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
-    const [locationError, setLocationError] = useState('');
+    const [formError, setFormError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && !isSubmitting;
+    const hasRequiredPhoto = imageFile !== null && imagePreviewUrl !== null && freshness !== null;
+    const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && hasRequiredPhoto && !isSubmitting;
 
     // Live search — debounced 300ms, partial match, scoped to Chennai
     // Position dropdown ABOVE input so it's not clipped by bottom nav
@@ -107,11 +108,10 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
             ? `${parts[0].trim()}, ${parts[1].trim()}`
             : parts[0].trim();
         setLocation(shortName);
-        setSelectedLat(parseFloat(s.lat));
-        setSelectedLng(parseFloat(s.lon));
+        setSelectedLat(Number.parseFloat(s.lat));
+        setSelectedLng(Number.parseFloat(s.lon));
         setShowDropdown(false);
         setSuggestions([]);
-        setLocationError('');
     };
 
     const handleLocationChange = (value: string) => {
@@ -123,13 +123,21 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
     const handleSubmit = () => {
         if (!canSubmit || selectedLat === null || selectedLng === null) {
-            if (!selectedLat || !selectedLng) {
-                setLocationError('Please select a location from the suggestions.');
+            const missingFields: string[] = [];
+            if (!foodName.trim()) {
+                missingFields.push('Food Name');
             }
+            if (!selectedLat || !selectedLng) {
+                missingFields.push('Pickup Location');
+            }
+            if (!hasRequiredPhoto) {
+                missingFields.push('Food Photo');
+            }
+            setFormError(`Please fill these required fields: ${missingFields.join(', ')}.`);
             return;
         }
         setIsSubmitting(true);
-        setLocationError('');
+        setFormError('');
 
         onDonate({
             foodName,
@@ -158,7 +166,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
         setImagePreviewUrl(null);
         setFreshness(null);
         setIsSubmitted(false);
-        setLocationError('');
+        setFormError('');
     };
 
     if (isSubmitted) {
@@ -211,7 +219,12 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         </label>
                         <input
                             value={foodName}
-                            onChange={(e) => setFoodName(e.target.value)}
+                            onChange={(e) => {
+                                setFoodName(e.target.value);
+                                if (e.target.value.trim()) {
+                                    setFormError('');
+                                }
+                            }}
                             placeholder="e.g. Rice & Dal, Bread, Biryani..."
                             className="w-full h-14 px-5 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 focus:ring-ios-blue transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px]"
                         />
@@ -284,7 +297,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                             setImagePreviewUrl(URL.createObjectURL(file));
                             setFreshness(f);
                         }}
-                        onImageRemove={() => { setImageFile(null); setImagePreviewUrl(null); setFreshness(null); }}
+                        onImageRemove={() => {
+                            setImageFile(null);
+                            setImagePreviewUrl(null);
+                            setFreshness(null);
+                        }}
                     />
 
                     {/* Location — Live search with Nominatim */}
@@ -305,9 +322,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                                 onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
                                 placeholder="Type area name, e.g. Royapuram..."
                                 className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${
-                                    locationError
-                                        ? 'ring-2 ring-ios-systemRed focus:ring-ios-systemRed'
-                                        : selectedLat !== null
+                                    selectedLat !== null
                                         ? 'ring-2 ring-emerald-500 focus:ring-emerald-500'
                                         : 'focus:ring-ios-blue'
                                 }`}
@@ -381,21 +396,19 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         </div>
                     )}
 
-                    {/* Location Error */}
-                    {locationError && (
-                        <p className="text-ios-systemRed text-[13px] font-semibold px-1 -mt-4">{locationError}</p>
-                    )}
                 </div>
 
                 {/* Submit Button — separate section, only visible after scrolling past form */}
                 <div className="mt-16 mb-8">
+                    {formError && (
+                        <p className="text-ios-systemRed text-[13px] font-semibold px-1 mb-3">{formError}</p>
+                    )}
                     <motion.button
-                        whileTap={canSubmit ? { scale: 0.97 } : {}}
+                        whileTap={{ scale: 0.97 }}
                         onClick={handleSubmit}
-                        disabled={!canSubmit}
                         className={`w-full py-[18px] rounded-2xl font-black text-[15px] tracking-wide flex items-center justify-center gap-2.5 transition-all duration-300 min-h-[52px] ${canSubmit
                             ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 active:shadow-md'
-                            : 'bg-gray-200 dark:bg-white/[0.08] text-ios-systemGray cursor-not-allowed'
+                            : 'bg-gray-300 dark:bg-white/[0.14] text-ios-systemGray active:shadow-md'
                             }`}
                     >
                         {isSubmitting ? (

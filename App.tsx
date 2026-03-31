@@ -10,14 +10,13 @@ import ProfileView from './pages/ProfileView';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import BottomNav from './components/BottomNav';
-import LiveImpactTicker from './components/LiveImpactTicker';
 import RoleToggle from './components/RoleToggle';
 import NotificationToast from './components/NotificationToast';
 import {
   getFoods, saveFoods, addFood, updateFood,
   getCurrentUser, setCurrentUser, clearCurrentUser,
   loginUser, registerUser,
-  getNotifications, saveNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
+  getNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
   checkAndUpdateExpiry, isSeeded, markSeeded,
   User,
 } from './utils/storage';
@@ -381,10 +380,9 @@ const App: React.FC = () => {
           }`} />
       </div>
 
-      {/* Top Section: Ticker + Toggle */}
+      {/* Top Section: Toggle */}
       {showRoleToggle && (
-        <div className="relative z-20 pt-12 pb-3 space-y-4">
-          <LiveImpactTicker />
+        <div className="relative z-20 pt-12 pb-3">
           <div className="px-5">
             <RoleToggle role={userRole} onRoleChange={setUserRole} />
           </div>
