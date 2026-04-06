@@ -9,6 +9,8 @@ export type FreshnessLevel = 'excellent' | 'good' | 'fair';
 
 export type FoodStatus = 'available' | 'claimed' | 'picked' | 'expired';
 
+export type QualityClass = 'Fresh' | 'Questionable' | 'Spoiled';
+
 export interface Rating {
   listingId: string;
   userId: string;
@@ -53,11 +55,20 @@ export interface FoodListing {
   expiresAt: string; // ISO timestamp
   servings: number;
   freshness: FreshnessLevel;
+  isVerified?: boolean;
+  qualityLabel?: QualityClass | null;
+  qualityConfidence?: number | null;
   dietary: string[]; // e.g. ['Vegan', 'Gluten-Free']
   status: FoodStatus;
   claimed: boolean; // kept for backward compat
   claimedBy?: string;
   donorEmail?: string; // to track who posted
+}
+
+export interface QualityCheckResult {
+  freshness: QualityClass;
+  confidence: number;
+  isVerified: boolean;
 }
 
 export interface ImpactStats {

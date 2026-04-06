@@ -107,7 +107,15 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, cur
                     <div>
                         <div className="flex items-start justify-between gap-2">
                             <h3 className="text-[15px] font-black leading-tight truncate">{listing.title}</h3>
-                            <span className="text-[10px] font-bold text-ios-systemGray uppercase shrink-0">{listing.servings} srv</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                {listing.isVerified && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400">
+                                        <ShieldCheck size={10} />
+                                        Verified
+                                    </span>
+                                )}
+                                <span className="text-[10px] font-bold text-ios-systemGray uppercase">{listing.servings} srv</span>
+                            </div>
                         </div>
 
                         {/* Donor Info */}

@@ -49,3 +49,27 @@ class FoodPatch(BaseModel):
 class ExpireCheckResponse(BaseModel):
     changed: list[str]
     foods: list[dict[str, Any]]
+
+
+class QualityResult(BaseModel):
+    foodId: str
+    freshness: str
+    confidence: float
+    isVerified: bool
+    topPrediction: str
+
+
+class VerifyQualityResponse(BaseModel):
+    food: dict[str, Any]
+    quality: QualityResult
+
+
+class PreviewQualityResult(BaseModel):
+    freshness: str
+    confidence: float
+    isVerified: bool
+    topPrediction: str
+
+
+class PreviewQualityResponse(BaseModel):
+    quality: PreviewQualityResult

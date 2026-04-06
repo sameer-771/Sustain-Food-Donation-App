@@ -9,6 +9,10 @@ from ..core.database import get_connection
 from ..core.time_utils import parse_iso_datetime
 from ..models.mappers import row_to_food
 from ..schemas.food import FoodCreate, FoodPatch
+from .quality_service import analyze_food_freshness, should_mark_verified
+
+SELECT_FOOD_ID_BY_ID = "SELECT id FROM foods WHERE id = ?"
+SELECT_FOOD_BY_ID = "SELECT * FROM foods WHERE id = ?"
 
 
 def list_foods() -> list[dict[str, Any]]:
@@ -19,7 +23,7 @@ def list_foods() -> list[dict[str, Any]]:
 
 def create_food(payload: FoodCreate) -> dict[str, Any]:
     with get_connection() as conn:
-        exists = conn.execute("SELECT id FROM foods WHERE id = ?", (payload.id,)).fetchone()
+        exists = conn.execute(SELECT_FOOD_ID_BY_ID, (payload.id,)).fetchone()
         if exists:
             raise HTTPException(status_code=409, detail="Listing id already exists")
 
@@ -54,7 +58,7 @@ def create_food(payload: FoodCreate) -> dict[str, Any]:
             ),
         )
 
-        row = conn.execute("SELECT * FROM foods WHERE id = ?", (payload.id,)).fetchone()
+        row = conn.execute(SELECT_FOOD_BY_ID, (payload.id,)).fetchone()
 
     return row_to_food(row)
 
@@ -99,7 +103,7 @@ def patch_food(food_id: str, payload: FoodPatch) -> dict[str, Any]:
     values.append(food_id)
 
     with get_connection() as conn:
-        existing = conn.execute("SELECT id FROM foods WHERE id = ?", (food_id,)).fetchone()
+        existing = conn.execute(SELECT_FOOD_ID_BY_ID, (food_id,)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Listing not found")
 
@@ -108,7 +112,7 @@ def patch_food(food_id: str, payload: FoodPatch) -> dict[str, Any]:
             tuple(values),
         )
 
-        row = conn.execute("SELECT * FROM foods WHERE id = ?", (food_id,)).fetchone()
+        row = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
 
     return row_to_food(row)
 
@@ -145,3 +149,65 @@ def expire_check() -> dict[str, Any]:
         latest_rows = conn.execute("SELECT * FROM foods ORDER BY created_at DESC").fetchall()
 
     return {"changed": changed_ids, "foods": [row_to_food(r) for r in latest_rows]}
+
+
+def verify_food_quality(food_id: str, image_bytes: bytes) -> dict[str, Any]:
+    with get_connection() as conn:
+        existing = conn.execute(SELECT_FOOD_ID_BY_ID, (food_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Listing not found")
+
+    try:
+        quality_result = analyze_food_freshness(image_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard for model/runtime failures
+        raise HTTPException(status_code=500, detail="Image analysis failed") from exc
+
+    freshness = str(quality_result["freshness"])
+    confidence = float(quality_result["confidence"])
+    is_verified = should_mark_verified(freshness, confidence)
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE foods
+            SET is_verified = ?, quality_label = ?, quality_confidence = ?
+            WHERE id = ?
+            """,
+            (int(is_verified), freshness, confidence, food_id),
+        )
+        row = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
+
+    return {
+        "food": row_to_food(row),
+        "quality": {
+            "foodId": food_id,
+            "freshness": freshness,
+            "confidence": confidence,
+            "isVerified": is_verified,
+            "topPrediction": quality_result["topPrediction"],
+        },
+    }
+
+
+def preview_food_quality(image_bytes: bytes) -> dict[str, Any]:
+    try:
+        quality_result = analyze_food_freshness(image_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard for model/runtime failures
+        raise HTTPException(status_code=500, detail="Image analysis failed") from exc
+
+    freshness = str(quality_result["freshness"])
+    confidence = float(quality_result["confidence"])
+    is_verified = should_mark_verified(freshness, confidence)
+
+    return {
+        "quality": {
+            "freshness": freshness,
+            "confidence": confidence,
+            "isVerified": is_verified,
+            "topPrediction": quality_result["topPrediction"],
+        },
+    }

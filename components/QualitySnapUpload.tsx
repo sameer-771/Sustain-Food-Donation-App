@@ -1,11 +1,20 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, X, ShieldCheck, Sparkles, Upload, AlertTriangle } from 'lucide-react';
-import { FreshnessLevel } from '../types';
+import { Camera, X, ShieldCheck, Upload, Loader2 } from 'lucide-react';
+
+import { verifyQualityPreviewInApi } from '../utils/storage';
+
+type LocalQualityStatus = 'good' | 'bad';
+
+interface LocalQualityResult {
+    status: LocalQualityStatus;
+    freshness: 'Fresh' | 'Questionable' | 'Spoiled';
+    confidence: number;
+}
 
 interface QualitySnapUploadProps {
-    onImageUpload: (file: File, freshness: FreshnessLevel) => void;
+    onImageUpload: (file: File) => void;
     onImageRemove: () => void;
 }
 
@@ -13,28 +22,37 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
     const [preview, setPreview] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [freshness, setFreshness] = useState<FreshnessLevel | null>(null);
+    const [qualityResult, setQualityResult] = useState<LocalQualityResult | null>(null);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const analyzeImage = useCallback((file: File) => {
+    const setPreviewImage = useCallback(async (file: File) => {
         const url = URL.createObjectURL(file);
         setPreview(url);
         setIsAnalyzing(true);
-        setFreshness(null);
+        setQualityResult(null);
+        setAnalysisError(null);
+        onImageUpload(file);
 
-        // Simulate AI freshness analysis (1.8s)
-        setTimeout(() => {
-            const levels: FreshnessLevel[] = ['excellent', 'good', 'fair'];
-            const result = levels[Math.floor(Math.random() * 2)]; // bias toward excellent/good
-            setFreshness(result);
+        try {
+            const response = await verifyQualityPreviewInApi(file);
+            const status: LocalQualityStatus = response.quality.freshness === 'Fresh' ? 'good' : 'bad';
+            setQualityResult({
+                status,
+                freshness: response.quality.freshness,
+                confidence: response.quality.confidence,
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Could not analyze image right now.';
+            setAnalysisError(message);
+        } finally {
             setIsAnalyzing(false);
-            onImageUpload(file, result);
-        }, 1800);
+        }
     }, [onImageUpload]);
 
     const handleFile = (file: File) => {
         if (file && file.type.startsWith('image/')) {
-            analyzeImage(file);
+            setPreviewImage(file);
         }
     };
 
@@ -47,17 +65,16 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
 
     const handleRemove = () => {
         setPreview(null);
-        setFreshness(null);
         setIsAnalyzing(false);
+        setQualityResult(null);
+        setAnalysisError(null);
         onImageRemove();
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const freshnessConfig = {
-        excellent: { label: 'Excellent Freshness', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', icon: <ShieldCheck size={16} /> },
-        good: { label: 'Good Quality', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20', icon: <ShieldCheck size={16} /> },
-        fair: { label: 'Fair – Consume Soon', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', icon: <AlertTriangle size={16} /> },
-    };
+    const qualityBadgeClass = qualityResult?.status === 'good'
+        ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+        : 'bg-red-500/12 border-red-500/30 text-red-600 dark:text-red-400';
 
     return (
         <div className="space-y-3">
@@ -133,50 +150,41 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
                             <X size={18} />
                         </motion.button>
 
-                        {/* AI Scan Overlay */}
-                        <AnimatePresence>
-                            {isAnalyzing && (
-                                <motion.div
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    className="absolute inset-0 z-10"
-                                >
-                                    {/* Scan line animation */}
-                                    <motion.div
-                                        animate={{ y: ['0%', '100%', '0%'] }}
-                                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                                        className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_20px_rgba(52,199,89,0.5)]"
-                                    />
-                                    <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3">
-                                        <motion.div
-                                            animate={{ rotate: 360 }}
-                                            transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-                                        >
-                                            <Sparkles size={28} className="text-emerald-400" />
-                                        </motion.div>
-                                        <span className="text-white text-[12px] font-black uppercase tracking-widest">Analyzing Freshness…</span>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* Freshness Badge */}
-                        <AnimatePresence>
-                            {freshness && !isAnalyzing && (
-                                <motion.div
-                                    initial={{ y: 20, opacity: 0 }}
-                                    animate={{ y: 0, opacity: 1 }}
-                                    className={`absolute bottom-3 left-3 right-3 flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border backdrop-blur-xl ${freshnessConfig[freshness].bg}`}
-                                >
-                                    <span className={freshnessConfig[freshness].color}>{freshnessConfig[freshness].icon}</span>
-                                    <span className={`text-[12px] font-black uppercase tracking-wide ${freshnessConfig[freshness].color}`}>
-                                        {freshnessConfig[freshness].label}
+                        <motion.div
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            className={`absolute bottom-3 left-3 right-3 px-4 py-2.5 rounded-2xl border backdrop-blur-xl ${qualityResult ? qualityBadgeClass : 'bg-ios-blue/10 border-ios-blue/20 text-ios-blue'}`}
+                        >
+                            {isAnalyzing ? (
+                                <div className="flex items-center gap-2.5">
+                                    <Loader2 size={16} className="animate-spin" />
+                                    <span className="text-[12px] font-black uppercase tracking-wide">
+                                        Processing with AI...
                                     </span>
-                                    <span className="ml-auto text-[9px] font-bold text-white/40 uppercase">AI Verified</span>
-                                </motion.div>
+                                </div>
+                            ) : qualityResult ? (
+                                <div className="flex items-center gap-2.5">
+                                    <ShieldCheck size={16} />
+                                    <span className="text-[12px] font-black uppercase tracking-wide">
+                                        {qualityResult.status === 'good' ? 'Good Quality' : 'Bad Quality'}
+                                    </span>
+                                    <span className="ml-auto text-[10px] font-bold opacity-80">
+                                        {(qualityResult.confidence * 100).toFixed(1)}%
+                                    </span>
+                                </div>
+                            ) : analysisError ? (
+                                <span className="text-[11px] font-bold text-red-600 dark:text-red-400">
+                                    {analysisError}
+                                </span>
+                            ) : (
+                                <div className="flex items-center gap-2.5">
+                                    <ShieldCheck size={16} />
+                                    <span className="text-[12px] font-black uppercase tracking-wide">
+                                        Ready For AI Quality Check
+                                    </span>
+                                </div>
                             )}
-                        </AnimatePresence>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>

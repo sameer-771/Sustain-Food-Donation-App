@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ViewType, UserRole, FoodListing, AppNotification } from './types';
+import { ViewType, UserRole, FoodListing, AppNotification, QualityCheckResult } from './types';
 import DonorPage from './pages/DonorPage';
 import ReceiverPage from './pages/ReceiverPage';
 import MapView from './pages/MapView';
@@ -18,7 +18,7 @@ import {
   loginUser, registerUser,
   getNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
   checkAndUpdateExpiry, isSeeded, markSeeded,
-  syncFoodsFromApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi,
+  syncFoodsFromApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi, verifyQualityInApi,
   User,
 } from './utils/storage';
 
@@ -256,7 +256,7 @@ const App: React.FC = () => {
   }, []);
 
   // --- Donor submits ---
-  const handleNewDonation = useCallback((donation: {
+  const handleNewDonation = useCallback(async (donation: {
     foodName: string;
     description: string;
     category: string;
@@ -264,9 +264,9 @@ const App: React.FC = () => {
     location: string;
     lat: number;
     lng: number;
+    imageFile: File;
     imagePreviewUrl: string | null;
-    freshness: string | null;
-  }) => {
+  }): Promise<QualityCheckResult | null> => {
     const randomImg = FOOD_IMAGES[Math.floor(Math.random() * FOOD_IMAGES.length)];
     const imgUrl = donation.imagePreviewUrl || randomImg;
     const now = new Date();
@@ -296,7 +296,10 @@ const App: React.FC = () => {
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + EXPIRY_DURATION).toISOString(),
       servings: parseInt(donation.servings) || 4,
-      freshness: (donation.freshness as any) || 'excellent',
+      freshness: 'excellent',
+      isVerified: false,
+      qualityLabel: null,
+      qualityConfidence: null,
       dietary: [],
       status: 'available',
       claimed: false,
@@ -306,9 +309,40 @@ const App: React.FC = () => {
     const updatedFoods = addFood(newListing);
     setListings(updatedFoods);
 
-    createFoodInApi(newListing).catch(() => {
+    try {
+      await createFoodInApi(newListing);
+    } catch {
       // Keep local UX responsive even if backend is temporarily unavailable.
-    });
+    }
+
+    let qualityResult: QualityCheckResult | null = null;
+    try {
+      const response = await verifyQualityInApi(newListing.id, donation.imageFile);
+      qualityResult = {
+        freshness: response.quality.freshness,
+        confidence: response.quality.confidence,
+        isVerified: response.quality.isVerified,
+      };
+
+      setListings(prev => {
+        const freshnessMap: Record<string, FoodListing['freshness']> = {
+          Fresh: 'excellent',
+          Questionable: 'good',
+          Spoiled: 'fair',
+        };
+        const updated = prev.map(item => item.id === newListing.id ? {
+          ...item,
+          isVerified: qualityResult?.isVerified ?? false,
+          qualityLabel: qualityResult?.freshness ?? null,
+          qualityConfidence: qualityResult?.confidence ?? null,
+          freshness: freshnessMap[qualityResult?.freshness ?? 'Questionable'],
+        } : item);
+        saveFoods(updated);
+        return updated;
+      });
+    } catch {
+      // Listing stays unverified if AI service fails.
+    }
 
     pushNotification({
       type: 'donation_posted',
@@ -316,6 +350,7 @@ const App: React.FC = () => {
       message: `"${donation.foodName}" is now live. Receivers nearby will be notified.`,
       relatedListingId: newListing.id,
     });
+    return qualityResult;
   }, [pushNotification, currentUser]);
 
   // --- Receiver claims (race-condition safe) ---

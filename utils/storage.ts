@@ -1,6 +1,31 @@
 import { FoodListing, AppNotification, Rating } from '../types';
+import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = (() => {
+  if (typeof window === 'undefined') {
+    return 'http://127.0.0.1:8000';
+  }
+
+  const protocol = window.location.protocol;
+  const host = window.location.hostname || '127.0.0.1';
+  return `${protocol}//${host}:8000`;
+})();
+
+interface VerifyQualityApiResponse {
+  quality: {
+    freshness: 'Fresh' | 'Questionable' | 'Spoiled';
+    confidence: number;
+    isVerified: boolean;
+  };
+}
+
+interface VerifyQualityPreviewApiResponse {
+  quality: {
+    freshness: 'Fresh' | 'Questionable' | 'Spoiled';
+    confidence: number;
+    isVerified: boolean;
+  };
+}
 
 // ── User types ──
 export interface User {
@@ -272,5 +297,54 @@ export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>)
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(errorText || `Failed to update food: ${res.status}`);
+  }
+};
+
+export const verifyQualityInApi = async (foodId: string, imageFile: File): Promise<VerifyQualityApiResponse> => {
+  const formData = new FormData();
+  formData.append('food_id', foodId);
+  formData.append('image', imageFile);
+
+  try {
+    const response = await axios.post<VerifyQualityApiResponse>(
+      `${API_BASE_URL}/verify-quality`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+      throw new Error(detail || 'Unable to verify food quality right now.');
+    }
+    throw new Error('Unable to verify food quality right now.');
+  }
+};
+
+export const verifyQualityPreviewInApi = async (imageFile: File): Promise<VerifyQualityPreviewApiResponse> => {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+
+  try {
+    const response = await axios.post<VerifyQualityPreviewApiResponse>(
+      `${API_BASE_URL}/verify-quality-preview`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+      throw new Error(detail || 'Unable to analyze this image now.');
+    }
+    throw new Error('Unable to analyze this image now.');
   }
 };

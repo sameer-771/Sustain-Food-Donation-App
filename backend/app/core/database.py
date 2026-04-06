@@ -47,6 +47,9 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL,
                 servings INTEGER NOT NULL,
                 freshness TEXT NOT NULL,
+                is_verified INTEGER NOT NULL DEFAULT 0,
+                quality_label TEXT,
+                quality_confidence REAL,
                 dietary_json TEXT NOT NULL,
                 status TEXT NOT NULL,
                 claimed INTEGER NOT NULL DEFAULT 0,
@@ -55,6 +58,19 @@ def init_db() -> None:
             )
             """
         )
+
+        # Backfill columns for existing databases created before quality verification support.
+        food_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(foods)").fetchall()
+        }
+        if "is_verified" not in food_columns:
+            conn.execute(
+                "ALTER TABLE foods ADD COLUMN is_verified INTEGER NOT NULL DEFAULT 0"
+            )
+        if "quality_label" not in food_columns:
+            conn.execute("ALTER TABLE foods ADD COLUMN quality_label TEXT")
+        if "quality_confidence" not in food_columns:
+            conn.execute("ALTER TABLE foods ADD COLUMN quality_confidence REAL")
 
         conn.execute(
             """

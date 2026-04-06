@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Utensils, MapPin, Send, Check } from 'lucide-react';
-import { FoodCategory, FreshnessLevel } from '../types';
+import { FoodCategory, QualityCheckResult } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
 
 const CATEGORIES: { value: FoodCategory; emoji: string }[] = [
@@ -29,9 +29,9 @@ interface DonorPageProps {
         location: string;
         lat: number;
         lng: number;
+        imageFile: File;
         imagePreviewUrl: string | null;
-        freshness: string | null;
-    }) => void;
+    }) => Promise<QualityCheckResult | null>;
 }
 
 const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
@@ -47,15 +47,16 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [isSearching, setIsSearching] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-    const [freshness, setFreshness] = useState<FreshnessLevel | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isAiProcessing, setIsAiProcessing] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [aiResult, setAiResult] = useState<QualityCheckResult | null>(null);
     const [formError, setFormError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const hasRequiredPhoto = imageFile !== null && imagePreviewUrl !== null && freshness !== null;
+    const hasRequiredPhoto = imageFile !== null && imagePreviewUrl !== null;
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && hasRequiredPhoto && !isSubmitting;
 
     // Live search — debounced 300ms, partial match, scoped to Chennai
@@ -118,11 +119,10 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
         setLocation(value);
         setSelectedLat(null);
         setSelectedLng(null);
-        setLocationError('');
     };
 
-    const handleSubmit = () => {
-        if (!canSubmit || selectedLat === null || selectedLng === null) {
+    const handleSubmit = async () => {
+        if (!canSubmit || selectedLat === null || selectedLng === null || !imageFile) {
             const missingFields: string[] = [];
             if (!foodName.trim()) {
                 missingFields.push('Food Name');
@@ -137,19 +137,27 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
             return;
         }
         setIsSubmitting(true);
+        setIsAiProcessing(true);
         setFormError('');
 
-        onDonate({
-            foodName,
-            description,
-            category,
-            servings,
-            location: location.trim(),
-            lat: selectedLat,
-            lng: selectedLng,
-            imagePreviewUrl,
-            freshness,
-        });
+        try {
+            const quality = await onDonate({
+                foodName,
+                description,
+                category,
+                servings,
+                location: location.trim(),
+                lat: selectedLat,
+                lng: selectedLng,
+                imageFile,
+                imagePreviewUrl,
+            });
+            setAiResult(quality);
+        } catch {
+            setAiResult(null);
+        }
+
+        setIsAiProcessing(false);
         setIsSubmitting(false);
         setIsSubmitted(true);
     };
@@ -164,7 +172,8 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
         setSelectedLng(null);
         setImageFile(null);
         setImagePreviewUrl(null);
-        setFreshness(null);
+        setAiResult(null);
+        setIsAiProcessing(false);
         setIsSubmitted(false);
         setFormError('');
     };
@@ -191,6 +200,31 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                 <p className="text-ios-systemGray text-sm font-medium mb-8">
                     They'll get a notification instantly. Thank you for making a difference! 🙏
                 </p>
+
+                {aiResult && (
+                    <div className={`w-full max-w-sm rounded-2xl border px-4 py-3 mb-8 text-left ${
+                        aiResult.freshness === 'Fresh'
+                            ? 'bg-emerald-500/10 border-emerald-500/25'
+                            : aiResult.freshness === 'Spoiled'
+                                ? 'bg-red-500/10 border-red-500/25'
+                                : 'bg-amber-500/10 border-amber-500/25'
+                    }`}>
+                        <p className="text-[11px] uppercase tracking-widest font-black text-ios-systemGray mb-1">AI Quality Snap</p>
+                        <p className={`text-sm font-black ${
+                            aiResult.freshness === 'Fresh'
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : aiResult.freshness === 'Spoiled'
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-amber-600 dark:text-amber-400'
+                        }`}>
+                            Freshness Class: {aiResult.freshness}
+                        </p>
+                        <p className="text-xs font-semibold text-ios-systemGray mt-1">
+                            Confidence Score: {(aiResult.confidence * 100).toFixed(1)}%
+                        </p>
+                    </div>
+                )}
+
                 <motion.button
                     whileTap={{ scale: 0.95 }}
                     onClick={handleReset}
@@ -292,15 +326,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
                     {/* Quality Snap Upload */}
                     <QualitySnapUpload
-                        onImageUpload={(file, f) => {
+                        onImageUpload={(file) => {
                             setImageFile(file);
                             setImagePreviewUrl(URL.createObjectURL(file));
-                            setFreshness(f);
                         }}
                         onImageRemove={() => {
                             setImageFile(null);
                             setImagePreviewUrl(null);
-                            setFreshness(null);
                         }}
                     />
 
@@ -412,11 +444,14 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                             }`}
                     >
                         {isSubmitting ? (
-                            <motion.div
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                                className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                            />
+                            <>
+                                <motion.div
+                                    animate={{ rotate: 360 }}
+                                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                    className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                                />
+                                {isAiProcessing ? 'Processing with AI...' : 'Posting Donation...'}
+                            </>
                         ) : (
                             <>
                                 <Send size={18} />
