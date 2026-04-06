@@ -73,3 +73,21 @@ class PreviewQualityResult(BaseModel):
 
 class PreviewQualityResponse(BaseModel):
     quality: PreviewQualityResult
+
+
+class GeneratePickupCodeResponse(BaseModel):
+    foodId: str
+    pickupToken: str
+    pickupCode: str
+    qrPayload: str
+    expiresAt: str
+
+
+class VerifyPickupRequest(BaseModel):
+    scannedPayload: str | None = None
+    code: str | None = None
+
+
+class VerifyPickupResponse(BaseModel):
+    verified: bool
+    food: dict[str, Any]

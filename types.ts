@@ -7,7 +7,7 @@ export type FoodCategory = 'Produce' | 'Prepared' | 'Bakery' | 'Dairy' | 'Bevera
 
 export type FreshnessLevel = 'excellent' | 'good' | 'fair';
 
-export type FoodStatus = 'available' | 'claimed' | 'picked' | 'expired';
+export type FoodStatus = 'available' | 'claimed' | 'picked' | 'completed' | 'expired';
 
 export type QualityClass = 'Fresh' | 'Questionable' | 'Spoiled';
 
@@ -69,6 +69,14 @@ export interface QualityCheckResult {
   freshness: QualityClass;
   confidence: number;
   isVerified: boolean;
+}
+
+export interface PickupCodeResult {
+  foodId: string;
+  pickupToken: string;
+  pickupCode: string;
+  qrPayload: string;
+  expiresAt: string;
 }
 
 export interface ImpactStats {

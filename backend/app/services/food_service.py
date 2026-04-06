@@ -1,18 +1,23 @@
 import json
+import secrets
+from datetime import timedelta
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 
 from ..core.config import EXPIRY_DURATION_SECONDS
 from ..core.database import get_connection
-from ..core.time_utils import parse_iso_datetime
+from ..core.time_utils import now_iso, parse_iso_datetime
 from ..models.mappers import row_to_food
 from ..schemas.food import FoodCreate, FoodPatch
 from .quality_service import analyze_food_freshness, should_mark_verified
 
 SELECT_FOOD_ID_BY_ID = "SELECT id FROM foods WHERE id = ?"
 SELECT_FOOD_BY_ID = "SELECT * FROM foods WHERE id = ?"
+PICKUP_TOKEN_PREFIX = "SUSTAIN_PICKUP"
+PICKUP_TOKEN_EXPIRY_MINUTES = 15
 
 
 def list_foods() -> list[dict[str, Any]]:
@@ -210,4 +215,122 @@ def preview_food_quality(image_bytes: bytes) -> dict[str, Any]:
             "isVerified": is_verified,
             "topPrediction": quality_result["topPrediction"],
         },
+    }
+
+
+def _generate_six_digit_code() -> str:
+    return str(secrets.randbelow(1_000_000)).zfill(6)
+
+
+def generate_pickup_code(food_id: str) -> dict[str, Any]:
+    with get_connection() as conn:
+        row = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Listing not found")
+
+        current = row_to_food(row)
+        if current["status"] != "claimed":
+            raise HTTPException(status_code=400, detail="Pickup code can only be generated for claimed listings")
+
+        conn.execute(
+            """
+            UPDATE pickup_verifications
+            SET used_at = ?
+            WHERE food_id = ? AND used_at IS NULL
+            """,
+            (now_iso(), food_id),
+        )
+
+        verification_id = str(uuid4())
+        token = str(uuid4())
+        pickup_code = _generate_six_digit_code()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=PICKUP_TOKEN_EXPIRY_MINUTES)).isoformat()
+        qr_payload = f"{PICKUP_TOKEN_PREFIX}:{token}"
+
+        conn.execute(
+            """
+            INSERT INTO pickup_verifications (
+                id, food_id, token, code, expires_at, created_at, used_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (verification_id, food_id, token, pickup_code, expires_at, now_iso()),
+        )
+
+    return {
+        "foodId": food_id,
+        "pickupToken": token,
+        "pickupCode": pickup_code,
+        "qrPayload": qr_payload,
+        "expiresAt": expires_at,
+    }
+
+
+def _parse_scanned_payload(scanned_payload: str | None) -> str | None:
+    if not scanned_payload:
+        return None
+    if scanned_payload.startswith(f"{PICKUP_TOKEN_PREFIX}:"):
+        return scanned_payload.split(":", 1)[1]
+    return None
+
+
+def verify_pickup_code(food_id: str, scanned_payload: str | None = None, code: str | None = None) -> dict[str, Any]:
+    token = _parse_scanned_payload(scanned_payload)
+    if not token and not code:
+        raise HTTPException(status_code=400, detail="Provide scannedPayload or code")
+
+    now = datetime.now(timezone.utc)
+
+    with get_connection() as conn:
+        food_row = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
+        if not food_row:
+            raise HTTPException(status_code=404, detail="Listing not found")
+
+        current = row_to_food(food_row)
+        if current["status"] != "claimed":
+            raise HTTPException(status_code=400, detail="Listing is not in claimed state")
+
+        verification_row = None
+        if token:
+            verification_row = conn.execute(
+                """
+                SELECT * FROM pickup_verifications
+                WHERE food_id = ? AND token = ? AND used_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (food_id, token),
+            ).fetchone()
+        elif code:
+            verification_row = conn.execute(
+                """
+                SELECT * FROM pickup_verifications
+                WHERE food_id = ? AND code = ? AND used_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (food_id, code),
+            ).fetchone()
+
+        if not verification_row:
+            raise HTTPException(status_code=400, detail="Invalid pickup verification code")
+
+        expires_at = parse_iso_datetime(verification_row["expires_at"])
+        if now > expires_at:
+            raise HTTPException(status_code=400, detail="Pickup verification code has expired")
+
+        conn.execute(
+            "UPDATE pickup_verifications SET used_at = ? WHERE id = ?",
+            (now_iso(), verification_row["id"]),
+        )
+        conn.execute(
+            "UPDATE foods SET status = ? WHERE id = ?",
+            ("completed", food_id),
+        )
+
+        updated_food = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
+
+    return {
+        "verified": True,
+        "food": row_to_food(updated_food),
     }

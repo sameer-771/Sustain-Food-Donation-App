@@ -380,13 +380,13 @@ const App: React.FC = () => {
     return true;
   }, [pushNotification, currentUser]);
 
-  // --- Pickup confirmed (mark as picked, don't delete) ---
+  // --- Pickup confirmed (mark as completed only after secure verification) ---
   const handlePickupConfirmed = useCallback((id: string) => {
     const listing = listings.find(l => l.id === id);
-    const updated = updateFood(id, { status: 'picked' });
+    const updated = updateFood(id, { status: 'completed' });
     setListings(updated);
 
-    updateFoodInApi(id, { status: 'picked' }).catch(() => {
+    updateFoodInApi(id, { status: 'completed' }).catch(() => {
       // Keep local UX responsive even if backend is temporarily unavailable.
     });
 
@@ -465,7 +465,12 @@ const App: React.FC = () => {
             className="absolute inset-0"
           >
             {activeView === 'home' && userRole === 'donor' && (
-              <DonorPage onDonate={handleNewDonation} />
+              <DonorPage
+                listings={listings}
+                currentUserEmail={currentUser?.email || ''}
+                onDonate={handleNewDonation}
+                onRefresh={refreshFromBackend}
+              />
             )}
             {activeView === 'home' && userRole === 'receiver' && (
               <ReceiverPage

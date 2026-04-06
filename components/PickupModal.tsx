@@ -195,8 +195,11 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, onClose, onConfirmPi
                             className="w-full py-4 min-h-[48px] rounded-2xl bg-emerald-500 text-white font-black text-[14px] uppercase tracking-wider shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                         >
                             <CheckCircle size={18} />
-                            I've Picked Up the Food
+                            Verify Pickup with QR
                         </button>
+                        <p className="text-[11px] font-semibold text-ios-systemGray text-center px-2">
+                            Ask donor to tap "Show QR" in Donor mode, then scan or enter the 6-digit code.
+                        </p>
                         <button
                             onClick={handleOpenInMaps}
                             className="w-full py-3.5 min-h-[48px] rounded-2xl bg-ios-blue/10 text-ios-blue font-bold text-[13px] flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"

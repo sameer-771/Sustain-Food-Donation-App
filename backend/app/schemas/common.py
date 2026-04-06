@@ -18,4 +18,4 @@ class LocationInfo(BaseModel):
     distanceValue: float
 
 
-FoodStatus = Literal["available", "claimed", "picked", "expired"]
+FoodStatus = Literal["available", "claimed", "picked", "completed", "expired"]

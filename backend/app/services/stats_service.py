@@ -6,7 +6,11 @@ def impact_stats() -> dict[str, int]:
         foods = conn.execute("SELECT status, servings FROM foods").fetchall()
         donors = conn.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'donor'").fetchone()["count"]
 
-    picked_servings = sum(r["servings"] for r in foods if r["status"] == "picked")
+    picked_servings = sum(
+        r["servings"]
+        for r in foods
+        if r["status"] in {"picked", "completed"}
+    )
     meals_saved_today = picked_servings
     kg_saved = int(round(picked_servings * 0.45))
     people_fed = picked_servings

@@ -1,4 +1,4 @@
-import { FoodListing, AppNotification, Rating } from '../types';
+import { FoodListing, AppNotification, PickupCodeResult, Rating } from '../types';
 import axios from 'axios';
 
 const API_BASE_URL = (() => {
@@ -25,6 +25,11 @@ interface VerifyQualityPreviewApiResponse {
     confidence: number;
     isVerified: boolean;
   };
+}
+
+interface VerifyPickupApiResponse {
+  verified: boolean;
+  food: FoodListing;
 }
 
 // ── User types ──
@@ -346,5 +351,44 @@ export const verifyQualityPreviewInApi = async (imageFile: File): Promise<Verify
       throw new Error(detail || 'Unable to analyze this image now.');
     }
     throw new Error('Unable to analyze this image now.');
+  }
+};
+
+export const generatePickupCodeInApi = async (foodId: string): Promise<PickupCodeResult> => {
+  try {
+    const response = await axios.post<PickupCodeResult>(
+      `${API_BASE_URL}/api/foods/${encodeURIComponent(foodId)}/pickup-code`,
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+      throw new Error(detail || 'Unable to generate pickup QR right now.');
+    }
+    throw new Error('Unable to generate pickup QR right now.');
+  }
+};
+
+export const verifyPickupInApi = async (
+  foodId: string,
+  payload: { scannedPayload?: string; code?: string },
+): Promise<VerifyPickupApiResponse> => {
+  try {
+    const response = await axios.post<VerifyPickupApiResponse>(
+      `${API_BASE_URL}/api/foods/${encodeURIComponent(foodId)}/verify-pickup`,
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+      throw new Error(detail || 'Unable to verify pickup code.');
+    }
+    throw new Error('Unable to verify pickup code.');
   }
 };

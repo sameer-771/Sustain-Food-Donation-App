@@ -5,15 +5,20 @@ from fastapi import APIRouter, File, Form, UploadFile
 from ..schemas.food import (
     FoodCreate,
     FoodPatch,
+    GeneratePickupCodeResponse,
     PreviewQualityResponse,
+    VerifyPickupRequest,
+    VerifyPickupResponse,
     VerifyQualityResponse,
 )
 from ..services.food_service import (
     create_food,
     expire_check,
+    generate_pickup_code,
     list_foods,
     patch_food,
     preview_food_quality,
+    verify_pickup_code,
     verify_food_quality,
 )
 
@@ -72,3 +77,31 @@ async def verify_quality(
 async def verify_quality_preview(image: Annotated[UploadFile, File(...)]) -> dict[str, Any]:
     image_bytes = await image.read()
     return preview_food_quality(image_bytes=image_bytes)
+
+
+@router.post(
+    "/{food_id}/pickup-code",
+    response_model=GeneratePickupCodeResponse,
+    responses={
+        400: {"description": "Listing not claimable for pickup code"},
+        404: {"description": "Listing not found"},
+    },
+)
+def create_pickup_code(food_id: str) -> dict[str, Any]:
+    return generate_pickup_code(food_id)
+
+
+@router.post(
+    "/{food_id}/verify-pickup",
+    response_model=VerifyPickupResponse,
+    responses={
+        400: {"description": "Invalid/expired pickup code"},
+        404: {"description": "Listing not found"},
+    },
+)
+def verify_pickup(food_id: str, payload: VerifyPickupRequest) -> dict[str, Any]:
+    return verify_pickup_code(
+        food_id=food_id,
+        scanned_payload=payload.scannedPayload,
+        code=payload.code,
+    )

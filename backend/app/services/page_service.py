@@ -36,7 +36,8 @@ def receiver_page_payload() -> dict[str, Any]:
     return {
         "available": [f for f in foods if f.get("status") == "available"],
         "claimed": [f for f in foods if f.get("status") == "claimed"],
-        "picked": [f for f in foods if f.get("status") == "picked"],
+        "picked": [f for f in foods if f.get("status") in {"picked", "completed"}],
+        "completed": [f for f in foods if f.get("status") == "completed"],
         "expired": [f for f in foods if f.get("status") == "expired"],
     }
 

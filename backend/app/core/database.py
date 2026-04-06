@@ -100,3 +100,17 @@ def init_db() -> None:
             )
             """
         )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pickup_verifications (
+                id TEXT PRIMARY KEY,
+                food_id TEXT NOT NULL,
+                token TEXT NOT NULL UNIQUE,
+                code TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                used_at TEXT
+            )
+            """
+        )

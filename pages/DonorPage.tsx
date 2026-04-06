@@ -2,8 +2,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Utensils, MapPin, Send, Check } from 'lucide-react';
-import { FoodCategory, QualityCheckResult } from '../types';
+import { FoodCategory, FoodListing, PickupCodeResult, QualityCheckResult } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
+import DonorPickupQrModal from '../components/DonorPickupQrModal';
+import { generatePickupCodeInApi } from '../utils/storage';
 
 const CATEGORIES: { value: FoodCategory; emoji: string }[] = [
     { value: 'Prepared', emoji: '🍲' },
@@ -21,6 +23,8 @@ interface LocationSuggestion {
 }
 
 interface DonorPageProps {
+    listings: FoodListing[];
+    currentUserEmail: string;
     onDonate: (data: {
         foodName: string;
         description: string;
@@ -32,9 +36,10 @@ interface DonorPageProps {
         imageFile: File;
         imagePreviewUrl: string | null;
     }) => Promise<QualityCheckResult | null>;
+    onRefresh?: () => Promise<void>;
 }
 
-const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
+const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDonate, onRefresh }) => {
     const [foodName, setFoodName] = useState('');
     const [description, setDescription] = useState('');
     const [category, setCategory] = useState<FoodCategory>('Prepared');
@@ -51,6 +56,8 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
     const [isAiProcessing, setIsAiProcessing] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [aiResult, setAiResult] = useState<QualityCheckResult | null>(null);
+    const [pickupModalData, setPickupModalData] = useState<{ listing: FoodListing; pickup: PickupCodeResult } | null>(null);
+    const [pickupCodeLoadingId, setPickupCodeLoadingId] = useState<string | null>(null);
     const [formError, setFormError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -58,6 +65,39 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
 
     const hasRequiredPhoto = imageFile !== null && imagePreviewUrl !== null;
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && hasRequiredPhoto && !isSubmitting;
+    const claimedListings = listings.filter((listing) => listing.donorEmail === currentUserEmail && listing.status === 'claimed');
+
+    const renderClaimedSection = () => {
+        if (claimedListings.length === 0) {
+            return null;
+        }
+
+        return (
+            <div className="mt-3 mb-6">
+                <h3 className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest mb-3 px-1">Claimed Donations</h3>
+                <p className="text-[12px] font-semibold text-ios-systemGray px-1 mb-3">Generate QR for receiver pickup verification.</p>
+                <div className="space-y-3">
+                    {claimedListings.map((listing) => (
+                        <div key={listing.id} className="glass-panel rounded-2xl p-4 border border-black/5 dark:border-white/10">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="font-black text-sm">{listing.title}</p>
+                                    <p className="text-xs text-ios-systemGray font-semibold">Claimed by {listing.claimedBy || 'Receiver'}</p>
+                                </div>
+                                <button
+                                    onClick={() => handleGeneratePickupCode(listing)}
+                                    disabled={pickupCodeLoadingId === listing.id}
+                                    className="px-4 h-10 rounded-xl bg-ios-blue text-white text-xs font-black uppercase tracking-wide disabled:opacity-60"
+                                >
+                                    {pickupCodeLoadingId === listing.id ? 'Generating...' : 'Show QR'}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
 
     // Live search — debounced 300ms, partial match, scoped to Chennai
     // Position dropdown ABOVE input so it's not clipped by bottom nav
@@ -178,6 +218,20 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
         setFormError('');
     };
 
+    const handleGeneratePickupCode = async (listing: FoodListing) => {
+        setPickupCodeLoadingId(listing.id);
+        try {
+            const pickup = await generatePickupCodeInApi(listing.id);
+            setPickupModalData({ listing, pickup });
+            await onRefresh?.();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Could not generate pickup QR right now.';
+            alert(message);
+        } finally {
+            setPickupCodeLoadingId(null);
+        }
+    };
+
     if (isSubmitted) {
         return (
             <motion.div
@@ -200,6 +254,8 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                 <p className="text-ios-systemGray text-sm font-medium mb-8">
                     They'll get a notification instantly. Thank you for making a difference! 🙏
                 </p>
+
+                {renderClaimedSection()}
 
                 {aiResult && (
                     <div className={`w-full max-w-sm rounded-2xl border px-4 py-3 mb-8 text-left ${
@@ -232,6 +288,14 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                 >
                     Donate More
                 </motion.button>
+
+                {pickupModalData && (
+                    <DonorPickupQrModal
+                        listingTitle={pickupModalData.listing.title}
+                        pickupData={pickupModalData.pickup}
+                        onClose={() => setPickupModalData(null)}
+                    />
+                )}
             </motion.div>
         );
     }
@@ -244,6 +308,8 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                     <h1 className="text-3xl font-black tracking-tight mb-1">Share Food</h1>
                     <p className="text-ios-systemGray font-semibold text-sm">List surplus food for someone who needs it</p>
                 </div>
+
+                {renderClaimedSection()}
 
                 <div className="space-y-7">
                     {/* Food Name */}
@@ -460,7 +526,16 @@ const DonorPage: React.FC<DonorPageProps> = ({ onDonate }) => {
                         )}
                     </motion.button>
                 </div>
+
             </div>
+
+            {pickupModalData && (
+                <DonorPickupQrModal
+                    listingTitle={pickupModalData.listing.title}
+                    pickupData={pickupModalData.pickup}
+                    onClose={() => setPickupModalData(null)}
+                />
+            )}
         </div>
     );
 };

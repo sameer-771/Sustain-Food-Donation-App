@@ -5,8 +5,9 @@ import { Search, SlidersHorizontal, MapPin, ArrowUpDown, X, PackageX } from 'luc
 import { FoodListing, FoodCategory } from '../types';
 import FoodCard from '../components/FoodCard';
 import PickupModal from '../components/PickupModal';
+import QrScannerModal from '../components/QrScannerModal';
 import RatingModal from '../components/RatingModal';
-import { saveRatingToApi, hasRatedInApi } from '../utils/storage';
+import { saveRatingToApi, hasRatedInApi, verifyPickupInApi } from '../utils/storage';
 
 const CATEGORIES: (FoodCategory | 'All')[] = ['All', 'Prepared', 'Bakery', 'Produce', 'Dairy', 'Beverages'];
 type SortMode = 'nearest' | 'freshest';
@@ -29,6 +30,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
 
     // State-based overlays: only one active at a time
     const [pickupListingId, setPickupListingId] = useState<string | null>(null);
+    const [scannerListingId, setScannerListingId] = useState<string | null>(null);
     const [ratingListingId, setRatingListingId] = useState<string | null>(null);
     const [claimingId, setClaimingId] = useState<string | null>(null);
 
@@ -97,18 +99,24 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         setPickupListingId(id);
     }, []);
 
-    // Pickup confirmed → close pickup, show rating if not already rated
-    const handlePickupConfirmed = useCallback(async (id: string) => {
-        onPickupConfirmed(id);
-        setPickupListingId(null);
+    // Begin secure pickup verification by opening scanner.
+    const handlePickupConfirmed = useCallback((id: string) => {
+        setScannerListingId(id);
+    }, []);
 
-        // Show rating modal if not already rated
-        const alreadyRated = await hasRatedInApi(id, currentUserId).catch(() => false);
+    const handleVerifyPickup = useCallback(async (payload: { scannedPayload?: string; code?: string }) => {
+        if (!scannerListingId) return;
+
+        await verifyPickupInApi(scannerListingId, payload);
+        onPickupConfirmed(scannerListingId);
+        setPickupListingId(null);
+        setScannerListingId(null);
+
+        const alreadyRated = await hasRatedInApi(scannerListingId, currentUserId).catch(() => false);
         if (!alreadyRated) {
-            // Small delay so pickup modal exit animation completes
-            setTimeout(() => setRatingListingId(id), 350);
+            setTimeout(() => setRatingListingId(scannerListingId), 350);
         }
-    }, [onPickupConfirmed, currentUserId]);
+    }, [scannerListingId, onPickupConfirmed, currentUserId]);
 
     // Rating handlers
     const handleRatingSubmit = useCallback(async (rating: number, feedback: string) => {
@@ -142,6 +150,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
 
     // Resolve listings for modals
     const pickupListing = pickupListingId ? listings.find(l => l.id === pickupListingId) : null;
+    const scannerListing = scannerListingId ? listings.find(l => l.id === scannerListingId) : null;
     const ratingListing = ratingListingId ? listings.find(l => l.id === ratingListingId) : null;
 
     const availableCount = filtered.filter(l => l.status === 'available').length;
@@ -300,6 +309,16 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                         listing={pickupListing}
                         onClose={() => setPickupListingId(null)}
                         onConfirmPickup={handlePickupConfirmed}
+                    />
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {scannerListing && (
+                    <QrScannerModal
+                        title={scannerListing.title}
+                        onClose={() => setScannerListingId(null)}
+                        onVerify={handleVerifyPickup}
                     />
                 )}
             </AnimatePresence>
