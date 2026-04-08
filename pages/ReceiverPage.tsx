@@ -78,16 +78,6 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     };
   }, []);
 
-  // Persisted claim state: reopen pickup on mount if user has an active claim
-  useEffect(() => {
-    const activeClaim = listings.find(
-      (listing) => listing.status === 'claimed' && listing.claimedBy === currentUserEmail,
-    );
-    if (activeClaim && !pickupListingId && !ratingListingId) {
-      setPickupListingId(activeClaim.id);
-    }
-  }, []); // Only on mount
-
   const listingsWithDistance = useMemo(() => {
     return listings.map((listing) => {
       if (!receiverLocation) {
