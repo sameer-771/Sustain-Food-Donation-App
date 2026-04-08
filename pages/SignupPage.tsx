@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, UserPlus, Heart, Search } from 'lucide-react';
+import { User, Mail, Lock, UserPlus } from 'lucide-react';
 import { UserRole } from '../types';
 
 interface SignupPageProps {
-  onSignup: (name: string, email: string, password: string, role: UserRole) => { success: boolean; error?: string };
+  onSignup: (name: string, email: string, password: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
   onGoToLogin: () => void;
 }
 
@@ -13,11 +13,11 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignup, onGoToLogin }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('donor');
+  const [role] = useState<UserRole>('donor');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
 
@@ -31,13 +31,11 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignup, onGoToLogin }) => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const result = onSignup(name.trim(), email.trim(), password, role);
-      if (!result.success) {
-        setError(result.error || 'Signup failed');
-      }
-      setIsLoading(false);
-    }, 600);
+    const result = await onSignup(name.trim(), email.trim(), password, role);
+    if (!result.success) {
+      setError(result.error || 'Signup failed');
+    }
+    setIsLoading(false);
   };
 
   return (

@@ -1,15 +1,16 @@
-from ..core.database import get_connection
+from ..core.supabase_config import get_supabase_client
 
 
 def impact_stats() -> dict[str, int]:
-    with get_connection() as conn:
-        foods = conn.execute("SELECT status, servings FROM foods").fetchall()
-        donors = conn.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'donor'").fetchone()["count"]
+    client = get_supabase_client(use_service_role=True)
+    foods = client.table("donations").select("status, quantity").execute().data or []
+    donor_rows = client.table("profiles").select("id", count="exact").eq("role", "donor").execute()
+    donors = donor_rows.count or 0
 
     picked_servings = sum(
-        r["servings"]
-        for r in foods
-        if r["status"] in {"picked", "completed"}
+        int(row.get("quantity") or 0)
+        for row in foods
+        if row.get("status") in {"picked", "completed"}
     )
     meals_saved_today = picked_servings
     kg_saved = int(round(picked_servings * 0.45))

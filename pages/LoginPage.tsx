@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Lock, LogIn, UserPlus, Heart } from 'lucide-react';
+import { Mail, Lock, LogIn, Heart } from 'lucide-react';
 
 interface LoginPageProps {
-  onLogin: (email: string, password: string) => { success: boolean; error?: string };
+  onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   onGoToSignup: () => void;
 }
 
@@ -14,7 +14,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToSignup }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
 
@@ -24,13 +24,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onGoToSignup }) => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const result = onLogin(email.trim(), password);
-      if (!result.success) {
-        setError(result.error || 'Invalid email or password');
-      }
-      setIsLoading(false);
-    }, 600);
+    const result = await onLogin(email.trim(), password);
+    if (!result.success) {
+      setError(result.error || 'Invalid email or password');
+    }
+    setIsLoading(false);
   };
 
   return (

@@ -5,14 +5,14 @@ This backend was added without changing any existing frontend files.
 ## Stack
 
 - FastAPI
-- SQLite (file: `backend/sustain.db`)
+- Supabase (PostgreSQL + Auth)
 
 ## Architecture
 
 The backend is now split into many connected Python modules:
 
 - `backend/app/main.py` (app composition + router wiring)
-- `backend/app/core/` (config, DB connection, time helpers)
+- `backend/app/core/` (config, Supabase connection, time helpers)
 - `backend/app/schemas/` (Pydantic request/response models)
 - `backend/app/models/` (row-to-JSON mappers)
 - `backend/app/services/` (business logic per domain)
@@ -27,6 +27,11 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+set SUPABASE_URL=https://your-project-ref.supabase.co
+set SUPABASE_ANON_KEY=your-anon-key
+set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+set SUPABASE_DB_URL=postgresql://postgres:password@db.your-project-ref.supabase.co:5432/postgres
+python init_supabase.py
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 

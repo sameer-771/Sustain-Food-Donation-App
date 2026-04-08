@@ -11,6 +11,13 @@ export type FoodStatus = 'available' | 'claimed' | 'picked' | 'completed' | 'exp
 
 export type QualityClass = 'Fresh' | 'Questionable' | 'Spoiled';
 
+export interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+}
+
 export interface Rating {
   listingId: string;
   userId: string;
@@ -63,6 +70,7 @@ export interface FoodListing {
   claimed: boolean; // kept for backward compat
   claimedBy?: string;
   donorEmail?: string; // to track who posted
+  donorId?: string;
 }
 
 export interface QualityCheckResult {

@@ -1,12 +1,22 @@
 from typing import Any
 
-from ..core.database import get_connection
-from ..models.mappers import row_to_user
+from ..core.supabase_config import get_supabase_client
 
 
 def list_users() -> list[dict[str, Any]]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, name, email, role FROM users ORDER BY created_at DESC"
-        ).fetchall()
-    return [row_to_user(r) for r in rows]
+    rows = (
+        get_supabase_client(use_service_role=True)
+        .table("profiles")
+        .select("id, username, email, role")
+        .order("created_at", desc=True)
+        .execute()
+    ).data or []
+    return [
+        {
+            "id": row["id"],
+            "name": row.get("username") or "User",
+            "email": row.get("email") or "unknown@example.com",
+            "role": row.get("role") or "receiver",
+        }
+        for row in rows
+    ]

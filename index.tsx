@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import 'leaflet/dist/leaflet.css';
 import { configureLeafletDefaultIcons } from './utils/leaflet';
+import { AuthProvider } from './src/context/AuthContext';
 
 configureLeafletDefaultIcons();
 
@@ -15,7 +16,9 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </React.StrictMode>
 );
 

@@ -2,13 +2,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { User, Heart, LogOut, Sun, Moon, Package, HandHeart, Star } from 'lucide-react';
-import { FoodListing } from '../types';
-import { User as UserType } from '../utils/storage';
+import { AppUser, FoodListing } from '../types';
 
 interface ProfileViewProps {
   darkMode: boolean;
   onToggleTheme: () => void;
-  currentUser: UserType;
+  currentUser: AppUser;
   listings: FoodListing[];
   onLogout: () => void;
 }

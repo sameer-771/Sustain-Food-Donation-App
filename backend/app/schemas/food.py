@@ -7,6 +7,7 @@ from .common import DonorInfo, FoodStatus, LocationInfo
 
 class FoodCreate(BaseModel):
     id: str
+    donorId: str | None = None
     title: str
     description: str
     category: str
@@ -27,6 +28,7 @@ class FoodCreate(BaseModel):
 
 
 class FoodPatch(BaseModel):
+    donorId: str | None = None
     title: str | None = None
     description: str | None = None
     category: str | None = None

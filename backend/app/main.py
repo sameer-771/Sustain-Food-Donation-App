@@ -1,10 +1,11 @@
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import ALLOWED_ORIGIN_REGEX, ALLOWED_ORIGINS
-from .core.database import init_db
+from .core.request_auth import AuthenticatedUser, require_authenticated_user
+from .core.supabase_config import get_supabase_client
 from .core.time_utils import now_iso
 from .routers.auth import router as auth_router
 from .routers.foods import router as foods_router
@@ -31,7 +32,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
-    init_db()
+    get_supabase_client(use_service_role=True)
 
 
 @app.get("/health")
@@ -50,9 +51,10 @@ def health() -> dict[str, str]:
 async def verify_quality(
     food_id: Annotated[str, Form(...)],
     image: Annotated[UploadFile, File(...)],
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> dict[str, Any]:
     image_bytes = await image.read()
-    return verify_food_quality(food_id=food_id, image_bytes=image_bytes)
+    return verify_food_quality(food_id, image_bytes, user.id)
 
 
 @app.post(

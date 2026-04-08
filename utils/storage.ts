@@ -1,13 +1,15 @@
 import { FoodListing, AppNotification, PickupCodeResult, Rating } from '../types';
 import axios from 'axios';
+import { supabase } from '../src/utils/supabaseClient';
 
 const API_BASE_URL = (() => {
-  if (typeof window === 'undefined') {
+  const runtimeWindow = globalThis.window;
+  if (runtimeWindow === undefined) {
     return 'http://127.0.0.1:8000';
   }
 
-  const protocol = window.location.protocol;
-  const host = window.location.hostname || '127.0.0.1';
+  const protocol = runtimeWindow.location.protocol;
+  const host = runtimeWindow.location.hostname || '127.0.0.1';
   return `${protocol}//${host}:8000`;
 })();
 
@@ -32,20 +34,27 @@ interface VerifyPickupApiResponse {
   food: FoodListing;
 }
 
-// ── User types ──
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  password: string;
-  role: 'donor' | 'receiver';
-}
+const getAccessToken = async (): Promise<string | null> => {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+};
+
+const getAuthHeaders = async (baseHeaders?: Record<string, string>): Promise<Record<string, string>> => {
+  const token = await getAccessToken();
+  if (!token) {
+    return baseHeaders || {};
+  }
+
+  if (!baseHeaders) {
+    return { Authorization: `Bearer ${token}` };
+  }
+
+  return { ...baseHeaders, Authorization: `Bearer ${token}` };
+};
 
 // ── Keys ──
 const KEYS = {
   FOODS: 'sustain_foods',
-  USERS: 'sustain_users',
-  CURRENT_USER: 'sustain_current_user',
   NOTIFICATIONS: 'sustain_notifications',
   SEEDED: 'sustain_seeded',
   RATINGS: 'sustain_ratings',
@@ -77,51 +86,6 @@ export const addFood = (food: FoodListing): FoodListing[] => {
   const updated = [food, ...foods];
   saveFoods(updated);
   return updated;
-};
-
-// ── Users ──
-export const getUsers = (): User[] => {
-  try {
-    const data = localStorage.getItem(KEYS.USERS);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
-};
-
-export const saveUsers = (users: User[]): void => {
-  localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-};
-
-export const registerUser = (user: Omit<User, 'id'>): User | null => {
-  const users = getUsers();
-  if (users.some(u => u.email === user.email)) return null; // duplicate
-  const newUser: User = { ...user, id: `user-${Date.now()}` };
-  saveUsers([...users, newUser]);
-  return newUser;
-};
-
-export const loginUser = (email: string, password: string): User | null => {
-  const users = getUsers();
-  return users.find(u => u.email === email && u.password === password) || null;
-};
-
-// ── Session ──
-export const getCurrentUser = (): User | null => {
-  try {
-    const data = localStorage.getItem(KEYS.CURRENT_USER);
-    return data ? JSON.parse(data) : null;
-  } catch {
-    return null;
-  }
-};
-
-export const setCurrentUser = (user: User): void => {
-  localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(user));
-};
-
-export const clearCurrentUser = (): void => {
-  localStorage.removeItem(KEYS.CURRENT_USER);
 };
 
 // ── Notifications ──
@@ -236,8 +200,20 @@ export const hasRated = (listingId: string, userId: string): boolean => {
 };
 
 // ── Backend sync helpers (frontend integration) ──
-export const syncFoodsFromApi = async (): Promise<FoodListing[]> => {
-  const res = await fetch(`${API_BASE_URL}/api/foods`);
+export const syncFoodsFromApi = async (options?: {
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
+}): Promise<FoodListing[]> => {
+  const params = new URLSearchParams();
+  if (typeof options?.lat === 'number') params.set('lat', String(options.lat));
+  if (typeof options?.lng === 'number') params.set('lng', String(options.lng));
+  if (typeof options?.radiusKm === 'number') params.set('radiusKm', String(options.radiusKm));
+
+  const query = params.toString();
+  const endpoint = query ? `${API_BASE_URL}/api/foods?${query}` : `${API_BASE_URL}/api/foods`;
+
+  const res = await fetch(endpoint);
   if (!res.ok) {
     throw new Error(`Failed to fetch foods: ${res.status}`);
   }
@@ -267,9 +243,10 @@ export const hasRatedInApi = async (listingId: string, userId: string): Promise<
 };
 
 export const saveRatingToApi = async (rating: Rating): Promise<void> => {
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(`${API_BASE_URL}/api/ratings`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(rating),
   });
 
@@ -280,9 +257,10 @@ export const saveRatingToApi = async (rating: Rating): Promise<void> => {
 };
 
 export const createFoodInApi = async (food: FoodListing): Promise<void> => {
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(`${API_BASE_URL}/api/foods`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(food),
   });
 
@@ -293,9 +271,10 @@ export const createFoodInApi = async (food: FoodListing): Promise<void> => {
 };
 
 export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>): Promise<void> => {
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(`${API_BASE_URL}/api/foods/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(updates),
   });
 
@@ -309,6 +288,7 @@ export const verifyQualityInApi = async (foodId: string, imageFile: File): Promi
   const formData = new FormData();
   formData.append('food_id', foodId);
   formData.append('image', imageFile);
+  const headers = await getAuthHeaders();
 
   try {
     const response = await axios.post<VerifyQualityApiResponse>(
@@ -317,6 +297,7 @@ export const verifyQualityInApi = async (foodId: string, imageFile: File): Promi
       {
         headers: {
           'Content-Type': 'multipart/form-data',
+          ...headers,
         },
       },
     );
@@ -355,9 +336,14 @@ export const verifyQualityPreviewInApi = async (imageFile: File): Promise<Verify
 };
 
 export const generatePickupCodeInApi = async (foodId: string): Promise<PickupCodeResult> => {
+  const headers = await getAuthHeaders();
   try {
     const response = await axios.post<PickupCodeResult>(
       `${API_BASE_URL}/api/foods/${encodeURIComponent(foodId)}/pickup-code`,
+      undefined,
+      {
+        headers,
+      },
     );
     return response.data;
   } catch (error) {
@@ -373,14 +359,13 @@ export const verifyPickupInApi = async (
   foodId: string,
   payload: { scannedPayload?: string; code?: string },
 ): Promise<VerifyPickupApiResponse> => {
+  const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   try {
     const response = await axios.post<VerifyPickupApiResponse>(
       `${API_BASE_URL}/api/foods/${encodeURIComponent(foodId)}/verify-pickup`,
       payload,
       {
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       },
     );
     return response.data;

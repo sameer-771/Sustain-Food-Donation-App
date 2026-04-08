@@ -12,14 +12,12 @@ import SignupPage from './pages/SignupPage';
 import BottomNav from './components/BottomNav';
 import RoleToggle from './components/RoleToggle';
 import NotificationToast from './components/NotificationToast';
+import { useAuth } from './src/context/AuthContext';
 import {
-  getFoods, saveFoods, addFood, updateFood,
-  getCurrentUser, setCurrentUser, clearCurrentUser,
-  loginUser, registerUser,
+  saveFoods, addFood, updateFood,
   getNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
-  checkAndUpdateExpiry, isSeeded, markSeeded,
+  checkAndUpdateExpiry,
   syncFoodsFromApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi, verifyQualityInApi,
-  User,
 } from './utils/storage';
 
 const EXPIRY_DURATION = 5 * 60 * 60 * 1000; // 5 hours in ms
@@ -56,7 +54,7 @@ const SEED_LISTINGS: FoodListing[] = [
     imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=600',
     thumbnailUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=300',
     donor: { name: 'Green Leaf Cafe', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=100', rating: 4.6, verified: true },
-    location: { address: 'Anna Nagar, Chennai', lat: 13.0850, lng: 80.2101, distance: '1.2 km', distanceValue: 1.2 },
+    location: { address: 'Anna Nagar, Chennai', lat: 13.085, lng: 80.2101, distance: '1.2 km', distanceValue: 1.2 },
     cookedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
     expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
@@ -98,7 +96,7 @@ const SEED_LISTINGS: FoodListing[] = [
     imageUrl: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&q=80&w=600',
     thumbnailUrl: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&q=80&w=300',
     donor: { name: 'Annapurna Kitchen', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=100', rating: 4.7, verified: true },
-    location: { address: 'Velachery, Chennai', lat: 12.9815, lng: 80.2180, distance: '0.6 km', distanceValue: 0.6 },
+    location: { address: 'Velachery, Chennai', lat: 12.9815, lng: 80.218, distance: '0.6 km', distanceValue: 0.6 },
     cookedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     expiresAt: new Date(Date.now() + EXPIRY_DURATION - 45 * 60 * 1000).toISOString(),
@@ -107,9 +105,9 @@ const SEED_LISTINGS: FoodListing[] = [
 ];
 
 const App: React.FC = () => {
+  const { user: currentUser, isAuthLoading, signIn, signUp, signOut } = useAuth();
   const [darkMode, setDarkMode] = useState(false);
   const [activeView, setActiveView] = useState<ViewType>('home');
-  const [currentUser, setCurrentUserState] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>('donor');
   const [listings, setListings] = useState<FoodListing[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -132,15 +130,9 @@ const App: React.FC = () => {
 
   // --- Initialize: load user, seed data, check expiry ---
   useEffect(() => {
-    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
     const storedTheme = localStorage.getItem('theme');
     setDarkMode(storedTheme ? storedTheme === 'dark' : isDark);
-
-    // Seed data on first load
-    if (!isSeeded()) {
-      saveFoods(SEED_LISTINGS);
-      markSeeded();
-    }
 
     // Check expiry
     const foods = checkAndUpdateExpiry();
@@ -151,13 +143,6 @@ const App: React.FC = () => {
 
     // Pull latest backend state if available
     refreshFromBackend();
-
-    // Check logged-in user
-    const user = getCurrentUser();
-    if (user) {
-      setCurrentUserState(user);
-      setUserRole(user.role);
-    }
 
     setIsLoading(false);
   }, [refreshFromBackend]);
@@ -225,35 +210,31 @@ const App: React.FC = () => {
   }, []);
 
   // --- Auth handlers ---
-  const handleLogin = useCallback((email: string, password: string): { success: boolean; error?: string } => {
-    const user = loginUser(email, password);
-    if (user) {
-      setCurrentUser(user);
-      setCurrentUserState(user);
-      setUserRole(user.role);
+  const handleLogin = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const result = await signIn(email, password);
+    if (result.success) {
       setActiveView('home');
-      return { success: true };
     }
-    return { success: false, error: 'Invalid email or password' };
-  }, []);
+    return result;
+  }, [signIn]);
 
-  const handleSignup = useCallback((name: string, email: string, password: string, role: UserRole): { success: boolean; error?: string } => {
-    const user = registerUser({ name, email, password, role });
-    if (user) {
-      setCurrentUser(user);
-      setCurrentUserState(user);
-      setUserRole(user.role);
+  const handleSignup = useCallback(async (
+    name: string,
+    email: string,
+    password: string,
+    role: UserRole,
+  ): Promise<{ success: boolean; error?: string }> => {
+    const result = await signUp(name, email, password, role);
+    if (result.success) {
       setActiveView('home');
-      return { success: true };
     }
-    return { success: false, error: 'An account with this email already exists' };
-  }, []);
+    return result;
+  }, [signUp]);
 
-  const handleLogout = useCallback(() => {
-    clearCurrentUser();
-    setCurrentUserState(null);
+  const handleLogout = useCallback(async () => {
+    await signOut();
     setActiveView('login');
-  }, []);
+  }, [signOut]);
 
   // --- Donor submits ---
   const handleNewDonation = useCallback(async (donation: {
@@ -281,7 +262,7 @@ const App: React.FC = () => {
       donor: {
         name: currentUser?.name || 'Anonymous Donor',
         avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100',
-        rating: 5.0,
+        rating: 5,
         verified: true,
       },
       location: {
@@ -294,7 +275,7 @@ const App: React.FC = () => {
       cookedAt: now.toISOString(),
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + EXPIRY_DURATION).toISOString(),
-      servings: parseInt(donation.servings) || 4,
+      servings: Number.parseInt(donation.servings, 10) || 4,
       freshness: 'excellent',
       isVerified: false,
       qualityLabel: null,
@@ -303,6 +284,7 @@ const App: React.FC = () => {
       status: 'available',
       claimed: false,
       donorEmail: currentUser?.email,
+      donorId: currentUser?.id,
     };
 
     const updatedFoods = addFood(newListing);
@@ -354,9 +336,7 @@ const App: React.FC = () => {
 
   // --- Receiver claims (race-condition safe) ---
   const handleClaimListing = useCallback((id: string): boolean => {
-    // Re-read from localStorage for atomic validation
-    const freshFoods = getFoods();
-    const listing = freshFoods.find(l => l.id === id);
+    const listing = listings.find(l => l.id === id);
     if (!listing) return false;
 
     // Validate: must be available and not expired
@@ -377,7 +357,7 @@ const App: React.FC = () => {
       relatedListingId: id,
     });
     return true;
-  }, [pushNotification, currentUser]);
+  }, [listings, pushNotification, currentUser]);
 
   // --- Pickup confirmed (mark as completed only after secure verification) ---
   const handlePickupConfirmed = useCallback((id: string) => {
@@ -402,7 +382,7 @@ const App: React.FC = () => {
   const showRoleToggle = activeView === 'home' && currentUser;
 
   // --- Loading ---
-  if (isLoading) {
+  if (isLoading || isAuthLoading) {
     return (
       <div className="h-screen w-full max-w-md mx-auto flex items-center justify-center bg-ios-lightBg dark:bg-ios-darkBg">
         <motion.div

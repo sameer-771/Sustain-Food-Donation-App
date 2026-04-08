@@ -2,68 +2,82 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ..core.database import get_connection
+from ..core.supabase_config import get_supabase_client
 from ..core.time_utils import now_iso
-from ..models.mappers import row_to_notification
 from ..schemas.notification import NotificationCreate
 
 
+def _row_to_notification(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "type": row["type"],
+        "title": row["title"],
+        "message": row["message"],
+        "timestamp": row.get("timestamp") or now_iso(),
+        "read": bool(row.get("is_read")),
+        "relatedListingId": row.get("related_listing_id"),
+        "icon": row.get("icon"),
+    }
+
+
 def list_notifications() -> list[dict[str, Any]]:
-    with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM notifications ORDER BY timestamp DESC").fetchall()
-    return [row_to_notification(r) for r in rows]
+    rows = (
+        get_supabase_client(use_service_role=True)
+        .table("notifications")
+        .select("*")
+        .order("timestamp", desc=True)
+        .execute()
+    ).data or []
+    return [_row_to_notification(row) for row in rows]
 
 
 def create_notification(payload: NotificationCreate) -> dict[str, Any]:
     timestamp = payload.timestamp or now_iso()
-    with get_connection() as conn:
-        exists = conn.execute("SELECT id FROM notifications WHERE id = ?", (payload.id,)).fetchone()
-        if exists:
-            raise HTTPException(status_code=409, detail="Notification id already exists")
+    client = get_supabase_client(use_service_role=True)
+    existing = client.table("notifications").select("id").eq("id", payload.id).limit(1).execute().data or []
+    if existing:
+        raise HTTPException(status_code=409, detail="Notification id already exists")
 
-        conn.execute(
-            """
-            INSERT INTO notifications (
-                id, type, title, message, timestamp, is_read, related_listing_id, icon
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload.id,
-                payload.type,
-                payload.title,
-                payload.message,
-                timestamp,
-                int(payload.read),
-                payload.relatedListingId,
-                payload.icon,
-            ),
+    rows = (
+        client.table("notifications")
+        .insert(
+            {
+                "id": payload.id,
+                "type": payload.type,
+                "title": payload.title,
+                "message": payload.message,
+                "timestamp": timestamp,
+                "is_read": payload.read,
+                "related_listing_id": payload.relatedListingId,
+                "icon": payload.icon,
+            }
         )
-
-        row = conn.execute("SELECT * FROM notifications WHERE id = ?", (payload.id,)).fetchone()
-
-    return row_to_notification(row)
+        .execute()
+    ).data or []
+    if not rows:
+        raise HTTPException(status_code=500, detail="Failed to create notification")
+    return _row_to_notification(rows[0])
 
 
 def mark_notification_read(notification_id: str) -> dict[str, Any]:
-    with get_connection() as conn:
-        exists = conn.execute(
-            "SELECT id FROM notifications WHERE id = ?", (notification_id,)
-        ).fetchone()
-        if not exists:
-            raise HTTPException(status_code=404, detail="Notification not found")
-
-        conn.execute(
-            "UPDATE notifications SET is_read = 1 WHERE id = ?", (notification_id,)
-        )
-        row = conn.execute(
-            "SELECT * FROM notifications WHERE id = ?", (notification_id,)
-        ).fetchone()
-
-    return row_to_notification(row)
+    rows = (
+        get_supabase_client(use_service_role=True)
+        .table("notifications")
+        .update({"is_read": True})
+        .eq("id", notification_id)
+        .execute()
+    ).data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return _row_to_notification(rows[0])
 
 
 def mark_all_notifications_read() -> dict[str, int]:
-    with get_connection() as conn:
-        cursor = conn.execute("UPDATE notifications SET is_read = 1 WHERE is_read = 0")
-    return {"updated": cursor.rowcount}
+    rows = (
+        get_supabase_client(use_service_role=True)
+        .table("notifications")
+        .update({"is_read": True})
+        .eq("is_read", False)
+        .execute()
+    ).data or []
+    return {"updated": len(rows)}
