@@ -7,6 +7,7 @@ import { FoodCategory, FoodListing, PickupCodeResult, QualityCheckResult } from 
 import QualitySnapUpload from '../components/QualitySnapUpload';
 import DonorPickupQrModal from '../components/DonorPickupQrModal';
 import { generatePickupCodeInApi } from '../utils/storage';
+import { selectedLocationMarkerIcon } from '../utils/leaflet';
 import {
     Coordinates,
     LocationSuggestion,
@@ -111,7 +112,7 @@ const DonationMapPicker: React.FC<DonationMapPickerProps> = ({ selectedLat, sele
         return null;
     }
 
-    return <Marker position={[selectedLat, selectedLng]} />;
+    return <Marker position={[selectedLat, selectedLng]} icon={selectedLocationMarkerIcon} />;
 };
 
 interface DonorMapFlyToProps {
@@ -231,6 +232,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                 }
             } catch {
                 setSuggestions([]);
+                setShowDropdown(false);
             } finally {
                 setIsSearching(false);
             }
@@ -517,7 +519,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                     />
 
                     {/* Location — Live search with Nominatim */}
-                    <div className="relative z-[100]">
+                    <div className="relative z-[300]">
                         <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center justify-between gap-2 mb-3">
                             <span className="inline-flex items-center gap-2">
                                 <MapPin size={12} /> Pickup Location
@@ -556,7 +558,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                         </div>
 
                         {showDropdown && suggestions.length > 0 && (
-                            <div className="absolute left-0 right-0 top-[calc(100%+4px)] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden z-[9999]">
+                            <div className="absolute left-0 right-0 top-[calc(100%+4px)] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden z-[350]">
                                 <div className="overflow-y-auto" style={{ maxHeight: '220px' }}>
                                     {suggestions.map((s, idx) => {
                                         const parts = s.display_name.split(',');
@@ -591,7 +593,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                         )}
                     </div>
 
-                    <div className="space-y-2 -mt-4">
+                    <div className="space-y-2 mt-1 relative z-0">
                         {selectedLat !== null && selectedLng !== null && (
                             <div className="flex items-center gap-2.5 px-1">
                                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -604,7 +606,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                             <MapContainer
                                 center={[selectedLat ?? DEFAULT_PICKER_CENTER.lat, selectedLng ?? DEFAULT_PICKER_CENTER.lng]}
                                 zoom={selectedLat !== null && selectedLng !== null ? 15 : 12}
-                                className="h-full w-full"
+                                className="h-full w-full relative z-0"
                                 scrollWheelZoom
                             >
                                 <TileLayer

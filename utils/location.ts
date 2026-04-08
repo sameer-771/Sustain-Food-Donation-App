@@ -10,6 +10,87 @@ export interface LocationSuggestion {
   place_id: number;
 }
 
+const CHENNAI_BOUNDS = {
+  minLat: 12.85,
+  maxLat: 13.25,
+  minLng: 80.1,
+  maxLng: 80.36,
+};
+
+const CHENNAI_VIEWBOX = `${CHENNAI_BOUNDS.minLng},${CHENNAI_BOUNDS.maxLat},${CHENNAI_BOUNDS.maxLng},${CHENNAI_BOUNDS.minLat}`;
+
+const isSuggestionInChennai = (suggestion: LocationSuggestion): boolean => {
+  const lat = Number.parseFloat(suggestion.lat);
+  const lon = Number.parseFloat(suggestion.lon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return false;
+  }
+
+  return (
+    lat >= CHENNAI_BOUNDS.minLat
+    && lat <= CHENNAI_BOUNDS.maxLat
+    && lon >= CHENNAI_BOUNDS.minLng
+    && lon <= CHENNAI_BOUNDS.maxLng
+  );
+};
+
+const splitSearchTokens = (value: string): string[] => (
+  value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+);
+
+const rankSuggestion = (query: string, suggestion: LocationSuggestion): number => {
+  const normalizedQuery = query.toLowerCase().trim();
+  if (!normalizedQuery) {
+    return 999;
+  }
+
+  const primary = suggestion.display_name.split(',')[0]?.trim().toLowerCase() || '';
+  const full = suggestion.display_name.toLowerCase();
+  const primaryTokens = splitSearchTokens(primary);
+  const fullTokens = splitSearchTokens(full);
+
+  if (primary.startsWith(normalizedQuery)) return 0;
+  if (primaryTokens.some((token) => token.startsWith(normalizedQuery))) return 1;
+  if (fullTokens.some((token) => token.startsWith(normalizedQuery))) return 2;
+  if (primary.includes(normalizedQuery)) return 3;
+  if (full.includes(normalizedQuery)) return 4;
+  return 5;
+};
+
+const prioritizeSuggestions = (
+  query: string,
+  suggestions: LocationSuggestion[],
+  limit: number,
+): LocationSuggestion[] => {
+  const chennaiSuggestions = suggestions.filter(isSuggestionInChennai);
+
+  const scored = chennaiSuggestions.map((item, index) => ({
+    item,
+    index,
+    score: rankSuggestion(query, item),
+    nameLength: item.display_name.length,
+  }));
+
+  const strictMatches = scored
+    .filter((entry) => entry.score <= 2)
+    .sort((a, b) => a.score - b.score || a.nameLength - b.nameLength || a.index - b.index)
+    .map((entry) => entry.item);
+
+  if (strictMatches.length > 0) {
+    return strictMatches.slice(0, limit);
+  }
+
+  return scored
+    .filter((entry) => entry.score <= 4)
+    .sort((a, b) => a.score - b.score || a.nameLength - b.nameLength || a.index - b.index)
+    .slice(0, limit)
+    .map((entry) => entry.item);
+};
+
 const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
 const API_BASE_URL = (() => {
   const runtimeWindow = globalThis.window;
@@ -106,22 +187,26 @@ export const searchNominatimLocations = async (
   query: string,
   limit = 6,
 ): Promise<LocationSuggestion[]> => {
-  if (!query.trim()) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) {
     return [];
   }
 
   const params = new URLSearchParams({
     format: 'json',
-    q: query.trim(),
+    q: normalizedQuery,
     limit: String(limit),
     addressdetails: '1',
+    viewbox: CHENNAI_VIEWBOX,
+    bounded: '1',
   });
 
   // Primary path: go through backend proxy for better reliability and no browser-side provider restrictions.
   try {
     const apiResponse = await fetch(`${API_BASE_URL}/api/geocoding/search?${params.toString()}`);
     if (apiResponse.ok) {
-      return (await apiResponse.json()) as LocationSuggestion[];
+      const data = (await apiResponse.json()) as LocationSuggestion[];
+      return prioritizeSuggestions(normalizedQuery, data, limit);
     }
   } catch {
     // Fall back to direct provider request.
@@ -137,7 +222,8 @@ export const searchNominatimLocations = async (
     throw new Error(`Nominatim search failed: ${response.status}`);
   }
 
-  return (await response.json()) as LocationSuggestion[];
+  const data = (await response.json()) as LocationSuggestion[];
+  return prioritizeSuggestions(normalizedQuery, data, limit);
 };
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<string> => {

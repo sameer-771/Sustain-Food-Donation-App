@@ -12,6 +12,31 @@ HEADERS = {
     "Accept-Language": "en",
 }
 
+# Chennai city bounds to keep autocomplete suggestions local.
+CHENNAI_BOUNDS = {
+    "min_lat": 12.85,
+    "max_lat": 13.25,
+    "min_lng": 80.10,
+    "max_lng": 80.36,
+}
+CHENNAI_VIEWBOX = (
+    f"{CHENNAI_BOUNDS['min_lng']},{CHENNAI_BOUNDS['max_lat']},"
+    f"{CHENNAI_BOUNDS['max_lng']},{CHENNAI_BOUNDS['min_lat']}"
+)
+
+
+def _is_within_chennai(lat: str, lon: str) -> bool:
+    try:
+        lat_value = float(lat)
+        lon_value = float(lon)
+    except (TypeError, ValueError):
+        return False
+
+    return (
+        CHENNAI_BOUNDS["min_lat"] <= lat_value <= CHENNAI_BOUNDS["max_lat"]
+        and CHENNAI_BOUNDS["min_lng"] <= lon_value <= CHENNAI_BOUNDS["max_lng"]
+    )
+
 
 @router.get("/search", responses={503: {"description": "Geocoding provider unavailable"}})
 def search_locations(
@@ -26,6 +51,8 @@ def search_locations(
                 "q": q.strip(),
                 "limit": str(limit),
                 "addressdetails": "1",
+                "viewbox": CHENNAI_VIEWBOX,
+                "bounded": "1",
             },
             headers=HEADERS,
             timeout=NOMINATIM_TIMEOUT_SECONDS,
@@ -49,6 +76,8 @@ def search_locations(
         lon = item.get("lon")
         place_id = item.get("place_id")
         if not isinstance(display_name, str) or not isinstance(lat, str) or not isinstance(lon, str):
+            continue
+        if not _is_within_chennai(lat, lon):
             continue
         normalized.append(
             {

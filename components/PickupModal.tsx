@@ -4,6 +4,7 @@ import { X, MapPin, Navigation, Clock, CheckCircle, Copy, ExternalLink } from 'l
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet';
 import { FoodListing } from '../types';
 import { Coordinates, formatDistanceKm, getCurrentLocation, haversineDistanceKm, watchCurrentLocation } from '../utils/location';
+import { listingMarkerIcon, userLocationMarkerIcon } from '../utils/leaflet';
 
 interface PickupModalProps {
   listing: FoodListing;
@@ -163,12 +164,12 @@ const PickupModal: React.FC<PickupModalProps> = ({ listing, currentLocation, onC
                   attribution='&copy; OpenStreetMap contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
-                <Marker position={[listing.location.lat, listing.location.lng]}>
+                <Marker position={[listing.location.lat, listing.location.lng]} icon={listingMarkerIcon}>
                   <Popup>{listing.title}</Popup>
                 </Marker>
                 {effectiveLocation && (
                   <>
-                    <Marker position={[effectiveLocation.lat, effectiveLocation.lng]}>
+                    <Marker position={[effectiveLocation.lat, effectiveLocation.lng]} icon={userLocationMarkerIcon}>
                       <Popup>Your location</Popup>
                     </Marker>
                     <Polyline

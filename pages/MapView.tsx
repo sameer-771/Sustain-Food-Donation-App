@@ -11,6 +11,7 @@ import {
   searchNominatimLocations,
   watchCurrentLocation,
 } from '../utils/location';
+import { listingMarkerIcon, userLocationMarkerIcon } from '../utils/leaflet';
 
 interface MapViewProps {
   listings: FoodListing[];
@@ -159,7 +160,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 z-[1000] pt-3 px-4 pb-3 bg-white/[0.92] dark:bg-ios-darkBg/[0.92] backdrop-blur-xl" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+      <div className="absolute top-0 left-0 right-0 z-[90] pt-3 px-4 pb-3 bg-white/[0.92] dark:bg-ios-darkBg/[0.92] backdrop-blur-xl" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <div className="flex items-center justify-between mb-2.5 gap-2">
           <div>
             <h1 className="text-xl font-black tracking-tight text-black dark:text-white">Food Map</h1>
@@ -216,7 +217,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
           )}
 
           {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-ios-darkCard rounded-2xl border border-black/[0.08] dark:border-white/[0.1] shadow-2xl overflow-hidden z-[1100] max-h-[46vh] overflow-y-auto">
+            <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-ios-darkCard rounded-2xl border border-black/[0.08] dark:border-white/[0.1] shadow-2xl overflow-hidden z-[100] max-h-[46vh] overflow-y-auto">
               {suggestions.map((suggestion, idx) => {
                 const parts = suggestion.display_name.split(',');
                 const primary = parts[0]?.trim() || suggestion.display_name;
@@ -225,6 +226,10 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
                   <button
                     key={`${suggestion.place_id}-${idx}`}
                     onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSelectSuggestion(suggestion);
+                    }}
+                    onTouchEnd={(event) => {
                       event.preventDefault();
                       handleSelectSuggestion(suggestion);
                     }}
@@ -251,7 +256,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
         )}
       </div>
 
-      <div className="absolute bottom-20 left-4 z-[1000] glass-panel rounded-2xl px-4 py-2.5 shadow-lg safe-area-bottom">
+      <div className="absolute bottom-24 left-4 z-[90] glass-panel rounded-2xl px-4 py-2.5 shadow-lg safe-area-bottom">
         <div className="text-[10px] font-bold uppercase tracking-wide text-ios-systemGray">
           {userLocation ? 'Live location enabled' : 'Location not granted'}
         </div>
@@ -260,7 +265,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
       <MapContainer
         center={[mapCenter.lat, mapCenter.lng]}
         zoom={13}
-        className="w-full h-full"
+        className="w-full h-full relative z-0"
         zoomControl={false}
       >
         <TileLayer
@@ -271,7 +276,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
         <FlyToLocation center={mapCenter} zoom={14} />
 
         {userLocation && (
-          <Marker position={[userLocation.lat, userLocation.lng]}>
+          <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationMarkerIcon}>
             <Popup>You are here</Popup>
           </Marker>
         )}
@@ -282,7 +287,7 @@ const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
             : listing.location.distance;
 
           return (
-            <Marker key={listing.id} position={[listing.location.lat, listing.location.lng]}>
+            <Marker key={listing.id} position={[listing.location.lat, listing.location.lng]} icon={listingMarkerIcon}>
               <Popup>
                 <div className="min-w-[210px]">
                   <p className="text-sm font-black mb-0.5">{listing.title}</p>
