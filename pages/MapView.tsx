@@ -1,197 +1,306 @@
-
-import React, { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { MapPin, Search, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { LocateFixed, MapPin, Search, X } from 'lucide-react';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import { FoodListing } from '../types';
-
-declare const L: any;
+import {
+  Coordinates,
+  formatDistanceKm,
+  getCurrentLocation,
+  haversineDistanceKm,
+  LocationSuggestion,
+  searchNominatimLocations,
+  watchCurrentLocation,
+} from '../utils/location';
 
 interface MapViewProps {
   listings: FoodListing[];
   onClaim: (id: string) => void;
 }
 
+const DEFAULT_CENTER: Coordinates = { lat: 13.0827, lng: 80.2707 };
+
+type LocationStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+interface FlyToProps {
+  center: Coordinates;
+  zoom?: number;
+}
+
+const FlyToLocation: React.FC<FlyToProps> = ({ center, zoom = 14 }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    map.flyTo([center.lat, center.lng], zoom, { duration: 0.7 });
+  }, [map, center.lat, center.lng, zoom]);
+
+  return null;
+};
+
 const MapView: React.FC<MapViewProps> = ({ listings, onClaim }) => {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchMode, setSearchMode] = useState<'listings' | 'location'>('listings');
+  const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
+  const [locationError, setLocationError] = useState('');
+  const [mapCenter, setMapCenter] = useState<Coordinates>(DEFAULT_CENTER);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshUserLocation = async () => {
+    setLocationStatus('loading');
+    setLocationError('');
+    try {
+      const current = await getCurrentLocation();
+      setUserLocation(current);
+      setMapCenter(current);
+      setLocationStatus('ready');
+    } catch (error) {
+      setLocationStatus('error');
+      setLocationError(error instanceof Error ? error.message : 'Unable to fetch current location.');
+    }
+  };
 
   useEffect(() => {
-    if (!mapContainerRef.current || typeof L === 'undefined') return;
+    void refreshUserLocation();
+  }, []);
 
-    // Initialize map only once
-    if (!mapRef.current) {
-      mapRef.current = L.map(mapContainerRef.current, {
-        zoomControl: false,
-      }).setView([13.0827, 80.2707], 13);
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap',
-        maxZoom: 19,
-      }).addTo(mapRef.current);
-
-      L.control.zoom({ position: 'bottomright' }).addTo(mapRef.current);
-    }
-
-    // Clear old markers
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
-
-    // Filter listings based on search
-    const query = searchQuery.trim().toLowerCase();
-    const filtered = query
-      ? listings.filter(l =>
-          l.title.toLowerCase().includes(query) ||
-          l.location.address.toLowerCase().includes(query) ||
-          l.category.toLowerCase().includes(query) ||
-          l.donor.name.toLowerCase().includes(query)
-        )
-      : listings;
-
-    // Add markers for each listing
-    filtered.forEach(listing => {
-      if (!listing.location.lat || !listing.location.lng) return;
-
-      // Only show available items on the map
-      if (listing.status !== 'available') return;
-
-      const color = '#34C759';
-      const label = 'Available';
-
-      const icon = L.divIcon({
-        className: 'custom-marker',
-        html: `<div style="
-          width: 32px; height: 32px;
-          background: ${color};
-          border-radius: 50%;
-          border: 3px solid white;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-          display: flex; align-items: center; justify-content: center;
-        ">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-            <circle cx="12" cy="10" r="3"></circle>
-          </svg>
-        </div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 32],
-        popupAnchor: [0, -32],
-      });
-
-      const marker = L.marker([listing.location.lat, listing.location.lng], { icon })
-        .addTo(mapRef.current);
-
-      const claimBtn = listing.status === 'available'
-        ? `<button onclick="window.__claimFood('${listing.id}')" style="
-            background: #007AFF; color: white; border: none; padding: 8px 16px;
-            border-radius: 12px; font-weight: 800; font-size: 12px; cursor: pointer;
-            width: 100%; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px;
-          ">Claim Now</button>`
-        : `<div style="
-            background: ${color}20; color: ${color}; padding: 6px 12px;
-            border-radius: 12px; font-weight: 800; font-size: 11px;
-            text-align: center; margin-top: 8px; text-transform: uppercase;
-          ">${label}</div>`;
-
-      marker.bindPopup(`
-        <div style="min-width: 180px; font-family: Inter, sans-serif;">
-          <div style="font-weight: 900; font-size: 14px; margin-bottom: 4px;">${listing.title}</div>
-          <div style="color: #8E8E93; font-size: 11px; font-weight: 600; margin-bottom: 2px;">
-            by ${listing.donor.name}
-          </div>
-          <div style="color: #8E8E93; font-size: 11px; font-weight: 600; margin-bottom: 2px;">
-            📍 ${listing.location.address}
-          </div>
-          <div style="color: #8E8E93; font-size: 11px; font-weight: 600;">
-            🍽️ ${listing.servings} servings • ${listing.location.distance}
-          </div>
-          ${claimBtn}
-        </div>
-      `, { closeButton: true, maxWidth: 250 });
-
-      markersRef.current.push(marker);
-    });
-
-    // If there's a search with results, zoom to fit
-    if (query && filtered.length > 0) {
-      const bounds = L.latLngBounds(filtered.map((l: FoodListing) => [l.location.lat, l.location.lng]));
-      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-    }
-
-    // Global claim handler
-    (window as any).__claimFood = (id: string) => {
-      onClaim(id);
-      mapRef.current?.closePopup();
-    };
-
-    return () => {
-      delete (window as any).__claimFood;
-    };
-  }, [listings, onClaim, searchQuery]);
-
-  // Cleanup on unmount
   useEffect(() => {
+    const stopWatching = watchCurrentLocation(
+      (location) => {
+        setUserLocation(location);
+        setLocationStatus('ready');
+        setLocationError('');
+      },
+      (error) => {
+        setLocationStatus('error');
+        setLocationError(error.message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 3000,
+        timeout: 12000,
+      },
+    );
+
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      stopWatching();
     };
   }, []);
 
-  const availableCount = listings.filter(l => l.status === 'available').length;
+  useEffect(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const results = await searchNominatimLocations(query, 7);
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 280);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [searchQuery]);
+
+  const availableListings = useMemo(() => listings.filter((listing) => listing.status === 'available'), [listings]);
+
+  const filteredListings = useMemo(() => {
+    if (searchMode === 'location') {
+      return availableListings;
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return availableListings;
+    }
+
+    return availableListings.filter((listing) =>
+      listing.title.toLowerCase().includes(query)
+      || listing.location.address.toLowerCase().includes(query)
+      || listing.category.toLowerCase().includes(query)
+      || listing.donor.name.toLowerCase().includes(query),
+    );
+  }, [availableListings, searchMode, searchQuery]);
+
+  const handleSelectSuggestion = (suggestion: LocationSuggestion) => {
+    const nextCenter = {
+      lat: Number.parseFloat(suggestion.lat),
+      lng: Number.parseFloat(suggestion.lon),
+    };
+
+    setMapCenter(nextCenter);
+    setSearchQuery(suggestion.display_name);
+    setSearchMode('location');
+    setShowSuggestions(false);
+    setSuggestions([]);
+  };
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      {/* Header with Search */}
       <div className="absolute top-0 left-0 right-0 z-[1000] pt-3 px-4 pb-3 bg-white/[0.92] dark:bg-ios-darkBg/[0.92] backdrop-blur-xl" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center justify-between mb-2.5 gap-2">
           <div>
             <h1 className="text-xl font-black tracking-tight text-black dark:text-white">Food Map</h1>
             <p className="text-ios-systemGray font-semibold text-[11px]">
-              {availableCount} available near you
+              {filteredListings.length} available near you
             </p>
           </div>
+          <button
+            onClick={() => void refreshUserLocation()}
+            className="h-9 px-3 rounded-xl bg-ios-blue/10 text-ios-blue text-[11px] font-black uppercase tracking-wide flex items-center gap-1.5"
+          >
+            <LocateFixed size={13} className={locationStatus === 'loading' ? 'animate-spin' : ''} />
+            Locate
+          </button>
         </div>
 
-        {/* Search Bar */}
         <div className="relative">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ios-systemGray/60" />
           <input
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => setIsSearchFocused(true)}
-            onBlur={() => setIsSearchFocused(false)}
-            placeholder="Search food, location, donor..."
+            onChange={(event) => {
+              setSearchMode('listings');
+              setSearchQuery(event.target.value);
+            }}
+            onFocus={() => {
+              setIsSearchFocused(true);
+              if (suggestions.length > 0) setShowSuggestions(true);
+            }}
+            onBlur={() => {
+              setIsSearchFocused(false);
+              setTimeout(() => setShowSuggestions(false), 180);
+            }}
+            placeholder="Search locations, food, donor..."
             className={`w-full h-10 pl-10 pr-10 rounded-xl bg-black/5 dark:bg-white/10 border-none text-[13px] font-semibold text-black dark:text-white placeholder:text-ios-systemGray/50 focus:outline-none focus:ring-2 focus:ring-ios-blue/50 transition-all ${
               isSearchFocused ? 'bg-white dark:bg-ios-darkCard shadow-sm' : ''
             }`}
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
+              onClick={() => {
+                setSearchQuery('');
+                setSearchMode('listings');
+                setSuggestions([]);
+                setShowSuggestions(false);
+              }}
               className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-ios-systemGray/20 flex items-center justify-center"
             >
               <X size={10} className="text-ios-systemGray" />
             </button>
           )}
+
+          {isSearching && (
+            <div className="absolute right-9 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-ios-blue/30 border-t-ios-blue rounded-full animate-spin" />
+          )}
+
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-ios-darkCard rounded-2xl border border-black/[0.08] dark:border-white/[0.1] shadow-2xl overflow-hidden z-[1100] max-h-[46vh] overflow-y-auto">
+              {suggestions.map((suggestion, idx) => {
+                const parts = suggestion.display_name.split(',');
+                const primary = parts[0]?.trim() || suggestion.display_name;
+                const secondary = parts.slice(1, 4).join(',').trim();
+                return (
+                  <button
+                    key={`${suggestion.place_id}-${idx}`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSelectSuggestion(suggestion);
+                    }}
+                    className="w-full px-4 py-3 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 border-b border-black/[0.05] dark:border-white/[0.06] last:border-none flex items-start gap-2.5"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-ios-blue/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <MapPin size={15} className="text-ios-blue" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-bold truncate">{primary}</div>
+                      <div className="text-[11px] text-ios-systemGray font-medium truncate">{secondary}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
+
+        {locationStatus === 'error' && (
+          <p className="text-[11px] font-semibold text-ios-systemRed mt-2">
+            {locationError}
+          </p>
+        )}
       </div>
 
-      {/* Legend */}
       <div className="absolute bottom-20 left-4 z-[1000] glass-panel rounded-2xl px-4 py-2.5 shadow-lg safe-area-bottom">
-        <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wide">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-[#34C759]" />
-            <span>Available</span>
-          </div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-ios-systemGray">
+          {userLocation ? 'Live location enabled' : 'Location not granted'}
         </div>
       </div>
 
-      {/* Map Container */}
-      <div ref={mapContainerRef} className="w-full h-full" style={{ zIndex: 1 }} />
+      <MapContainer
+        center={[mapCenter.lat, mapCenter.lng]}
+        zoom={13}
+        className="w-full h-full"
+        zoomControl={false}
+      >
+        <TileLayer
+          attribution='&copy; OpenStreetMap contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <FlyToLocation center={mapCenter} zoom={14} />
+
+        {userLocation && (
+          <Marker position={[userLocation.lat, userLocation.lng]}>
+            <Popup>You are here</Popup>
+          </Marker>
+        )}
+
+        {filteredListings.map((listing) => {
+          const distanceText = userLocation
+            ? formatDistanceKm(haversineDistanceKm(userLocation, { lat: listing.location.lat, lng: listing.location.lng }))
+            : listing.location.distance;
+
+          return (
+            <Marker key={listing.id} position={[listing.location.lat, listing.location.lng]}>
+              <Popup>
+                <div className="min-w-[210px]">
+                  <p className="text-sm font-black mb-0.5">{listing.title}</p>
+                  <p className="text-[11px] text-ios-systemGray font-semibold mb-1">by {listing.donor.name}</p>
+                  <p className="text-[11px] text-ios-systemGray font-semibold mb-1">{listing.location.address}</p>
+                  <p className="text-[11px] font-bold text-ios-blue mb-2">{distanceText}</p>
+                  <button
+                    onClick={() => onClaim(listing.id)}
+                    className="w-full h-9 rounded-xl bg-ios-blue text-white text-[11px] font-black uppercase tracking-wide"
+                  >
+                    Claim Now
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+      </MapContainer>
     </div>
   );
 };

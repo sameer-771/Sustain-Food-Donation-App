@@ -270,7 +270,6 @@ const App: React.FC = () => {
     const randomImg = FOOD_IMAGES[Math.floor(Math.random() * FOOD_IMAGES.length)];
     const imgUrl = donation.imagePreviewUrl || randomImg;
     const now = new Date();
-    const fakeDist = (Math.random() * 4 + 0.2).toFixed(1);
 
     const newListing: FoodListing = {
       id: `user-${Date.now()}`,
@@ -289,8 +288,8 @@ const App: React.FC = () => {
         address: donation.location,
         lat: donation.lat,
         lng: donation.lng,
-        distance: `${fakeDist} km`,
-        distanceValue: parseFloat(fakeDist),
+        distance: '0.0 km away',
+        distanceValue: 0,
       },
       cookedAt: now.toISOString(),
       createdAt: now.toISOString(),

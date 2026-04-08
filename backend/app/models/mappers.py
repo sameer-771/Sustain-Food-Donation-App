@@ -20,6 +20,12 @@ def row_to_user(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def row_to_food(row: sqlite3.Row) -> dict[str, Any]:
+    location = parse_json_field(row["location_json"]) or {}
+    if row["location_lat"] is not None:
+        location["lat"] = float(row["location_lat"])
+    if row["location_lng"] is not None:
+        location["lng"] = float(row["location_lng"])
+
     return {
         "id": row["id"],
         "title": row["title"],
@@ -28,7 +34,7 @@ def row_to_food(row: sqlite3.Row) -> dict[str, Any]:
         "imageUrl": row["image_url"],
         "thumbnailUrl": row["thumbnail_url"],
         "donor": parse_json_field(row["donor_json"]),
-        "location": parse_json_field(row["location_json"]),
+        "location": location,
         "cookedAt": row["cooked_at"],
         "createdAt": row["created_at"],
         "expiresAt": row["expires_at"],

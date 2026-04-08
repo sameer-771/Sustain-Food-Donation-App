@@ -8,6 +8,7 @@ from .core.database import init_db
 from .core.time_utils import now_iso
 from .routers.auth import router as auth_router
 from .routers.foods import router as foods_router
+from .routers.geocoding import router as geocoding_router
 from .routers.notifications import router as notifications_router
 from .routers.pages import router as pages_router
 from .routers.ratings import router as ratings_router
@@ -69,6 +70,7 @@ async def verify_quality_preview(image: Annotated[UploadFile, File(...)]) -> dic
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(foods_router)
+app.include_router(geocoding_router)
 app.include_router(notifications_router)
 app.include_router(ratings_router)
 app.include_router(stats_router)

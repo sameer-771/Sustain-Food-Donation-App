@@ -18,6 +18,7 @@ SELECT_FOOD_ID_BY_ID = "SELECT id FROM foods WHERE id = ?"
 SELECT_FOOD_BY_ID = "SELECT * FROM foods WHERE id = ?"
 PICKUP_TOKEN_PREFIX = "SUSTAIN_PICKUP"
 PICKUP_TOKEN_EXPIRY_MINUTES = 15
+LISTING_NOT_FOUND_DETAIL = "Listing not found"
 
 
 def list_foods() -> list[dict[str, Any]]:
@@ -36,10 +37,10 @@ def create_food(payload: FoodCreate) -> dict[str, Any]:
             """
             INSERT INTO foods (
                 id, title, description, category, image_url, thumbnail_url,
-                donor_json, location_json, cooked_at, created_at, expires_at,
+                donor_json, location_json, location_lat, location_lng, cooked_at, created_at, expires_at,
                 servings, freshness, dietary_json, status, claimed, claimed_by, donor_email
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload.id,
@@ -50,6 +51,8 @@ def create_food(payload: FoodCreate) -> dict[str, Any]:
                 payload.thumbnailUrl,
                 json.dumps(payload.donor.model_dump()),
                 json.dumps(payload.location.model_dump()),
+                payload.location.lat,
+                payload.location.lng,
                 payload.cookedAt,
                 payload.createdAt,
                 payload.expiresAt,
@@ -105,12 +108,18 @@ def patch_food(food_id: str, payload: FoodPatch) -> dict[str, Any]:
         set_parts.append(f"{column} = ?")
         values.append(value)
 
+        if key == "location":
+            set_parts.append("location_lat = ?")
+            values.append(float(updates["location"]["lat"]))
+            set_parts.append("location_lng = ?")
+            values.append(float(updates["location"]["lng"]))
+
     values.append(food_id)
 
     with get_connection() as conn:
         existing = conn.execute(SELECT_FOOD_ID_BY_ID, (food_id,)).fetchone()
         if not existing:
-            raise HTTPException(status_code=404, detail="Listing not found")
+            raise HTTPException(status_code=404, detail=LISTING_NOT_FOUND_DETAIL)
 
         conn.execute(
             f"UPDATE foods SET {', '.join(set_parts)} WHERE id = ?",
@@ -160,7 +169,7 @@ def verify_food_quality(food_id: str, image_bytes: bytes) -> dict[str, Any]:
     with get_connection() as conn:
         existing = conn.execute(SELECT_FOOD_ID_BY_ID, (food_id,)).fetchone()
         if not existing:
-            raise HTTPException(status_code=404, detail="Listing not found")
+            raise HTTPException(status_code=404, detail=LISTING_NOT_FOUND_DETAIL)
 
     try:
         quality_result = analyze_food_freshness(image_bytes)
@@ -226,7 +235,7 @@ def generate_pickup_code(food_id: str) -> dict[str, Any]:
     with get_connection() as conn:
         row = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Listing not found")
+            raise HTTPException(status_code=404, detail=LISTING_NOT_FOUND_DETAIL)
 
         current = row_to_food(row)
         if current["status"] != "claimed":
@@ -284,7 +293,7 @@ def verify_pickup_code(food_id: str, scanned_payload: str | None = None, code: s
     with get_connection() as conn:
         food_row = conn.execute(SELECT_FOOD_BY_ID, (food_id,)).fetchone()
         if not food_row:
-            raise HTTPException(status_code=404, detail="Listing not found")
+            raise HTTPException(status_code=404, detail=LISTING_NOT_FOUND_DETAIL)
 
         current = row_to_food(food_row)
         if current["status"] != "claimed":

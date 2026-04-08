@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
@@ -42,6 +43,8 @@ def init_db() -> None:
                 thumbnail_url TEXT NOT NULL,
                 donor_json TEXT NOT NULL,
                 location_json TEXT NOT NULL,
+                location_lat REAL,
+                location_lng REAL,
                 cooked_at TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
@@ -71,6 +74,33 @@ def init_db() -> None:
             conn.execute("ALTER TABLE foods ADD COLUMN quality_label TEXT")
         if "quality_confidence" not in food_columns:
             conn.execute("ALTER TABLE foods ADD COLUMN quality_confidence REAL")
+        if "location_lat" not in food_columns:
+            conn.execute("ALTER TABLE foods ADD COLUMN location_lat REAL")
+        if "location_lng" not in food_columns:
+            conn.execute("ALTER TABLE foods ADD COLUMN location_lng REAL")
+
+        rows_needing_location = conn.execute(
+            """
+            SELECT id, location_json
+            FROM foods
+            WHERE location_lat IS NULL OR location_lng IS NULL
+            """
+        ).fetchall()
+        for row in rows_needing_location:
+            try:
+                location = json.loads(row["location_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+
+            lat = location.get("lat")
+            lng = location.get("lng")
+            if lat is None or lng is None:
+                continue
+
+            conn.execute(
+                "UPDATE foods SET location_lat = ?, location_lng = ? WHERE id = ?",
+                (float(lat), float(lng), row["id"]),
+            )
 
         conn.execute(
             """

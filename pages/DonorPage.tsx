@@ -1,11 +1,19 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Utensils, MapPin, Send, Check } from 'lucide-react';
+import { Utensils, MapPin, Send, Check, LocateFixed } from 'lucide-react';
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { FoodCategory, FoodListing, PickupCodeResult, QualityCheckResult } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
 import DonorPickupQrModal from '../components/DonorPickupQrModal';
 import { generatePickupCodeInApi } from '../utils/storage';
+import {
+    Coordinates,
+    LocationSuggestion,
+    getCurrentLocation,
+    reverseGeocode,
+    searchNominatimLocations,
+} from '../utils/location';
 
 const CATEGORIES: { value: FoodCategory; emoji: string }[] = [
     { value: 'Prepared', emoji: '🍲' },
@@ -16,11 +24,113 @@ const CATEGORIES: { value: FoodCategory; emoji: string }[] = [
     { value: 'Other', emoji: '📦' },
 ];
 
-interface LocationSuggestion {
-    display_name: string;
-    lat: string;
-    lon: string;
+const DEFAULT_PICKER_CENTER: Coordinates = { lat: 13.0827, lng: 80.2707 };
+
+const getLocationStatusIcon = (
+    isSearching: boolean,
+    isLocationSelected: boolean,
+    locationLength: number,
+) => {
+    if (isSearching) {
+        return (
+            <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                className="w-5 h-5 border-2 border-ios-blue/30 border-t-ios-blue rounded-full"
+            />
+        );
+    }
+
+    if (isLocationSelected) {
+        return <Check size={18} className="text-emerald-500" strokeWidth={3} />;
+    }
+
+    if (locationLength >= 2) {
+        return <MapPin size={18} className="text-ios-systemGray/40" />;
+    }
+
+    return null;
+};
+
+const getFreshnessVisualClasses = (freshness: QualityCheckResult['freshness']) => {
+    if (freshness === 'Fresh') {
+        return {
+            cardClass: 'bg-emerald-500/10 border-emerald-500/25',
+            textClass: 'text-emerald-600 dark:text-emerald-400',
+        };
+    }
+
+    if (freshness === 'Spoiled') {
+        return {
+            cardClass: 'bg-red-500/10 border-red-500/25',
+            textClass: 'text-red-600 dark:text-red-400',
+        };
+    }
+
+    return {
+        cardClass: 'bg-amber-500/10 border-amber-500/25',
+        textClass: 'text-amber-600 dark:text-amber-400',
+    };
+};
+
+const getMissingRequiredFields = (
+    foodName: string,
+    selectedLat: number | null,
+    selectedLng: number | null,
+    hasRequiredPhoto: boolean,
+) => {
+    const missingFields: string[] = [];
+
+    if (!foodName.trim()) {
+        missingFields.push('Food Name');
+    }
+    if (selectedLat === null || selectedLng === null) {
+        missingFields.push('Pickup Location');
+    }
+    if (!hasRequiredPhoto) {
+        missingFields.push('Food Photo');
+    }
+
+    return missingFields;
+};
+
+interface DonationMapPickerProps {
+    selectedLat: number | null;
+    selectedLng: number | null;
+    onPick: (lat: number, lng: number) => void;
 }
+
+const DonationMapPicker: React.FC<DonationMapPickerProps> = ({ selectedLat, selectedLng, onPick }) => {
+    useMapEvents({
+        click(event) {
+            onPick(event.latlng.lat, event.latlng.lng);
+        },
+    });
+
+    if (selectedLat === null || selectedLng === null) {
+        return null;
+    }
+
+    return <Marker position={[selectedLat, selectedLng]} />;
+};
+
+interface DonorMapFlyToProps {
+    selectedLat: number | null;
+    selectedLng: number | null;
+}
+
+const DonorMapFlyTo: React.FC<DonorMapFlyToProps> = ({ selectedLat, selectedLng }) => {
+    const map = useMap();
+
+    useEffect(() => {
+        if (selectedLat === null || selectedLng === null) {
+            return;
+        }
+        map.flyTo([selectedLat, selectedLng], 15, { duration: 0.6 });
+    }, [map, selectedLat, selectedLng]);
+
+    return null;
+};
 
 interface DonorPageProps {
     listings: FoodListing[];
@@ -50,6 +160,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
     const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
+    const [isLocatingCurrent, setIsLocatingCurrent] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,11 +171,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
     const [pickupCodeLoadingId, setPickupCodeLoadingId] = useState<string | null>(null);
     const [formError, setFormError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
 
     const hasRequiredPhoto = imageFile !== null && imagePreviewUrl !== null;
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && hasRequiredPhoto && !isSubmitting;
+    const isLocationSelected = selectedLat !== null && selectedLng !== null;
+    const locationStatusIcon = getLocationStatusIcon(isSearching, isLocationSelected, location.length);
     const claimedListings = listings.filter((listing) => listing.donorEmail === currentUserEmail && listing.status === 'claimed');
 
     const renderClaimedSection = () => {
@@ -99,12 +210,6 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
         );
     };
 
-    // Live search — debounced 300ms, partial match, scoped to Chennai
-    // Position dropdown ABOVE input so it's not clipped by bottom nav
-    const updateDropdownPosition = useCallback(() => {
-        // No-op: dropdown now uses CSS absolute positioning
-    }, []);
-
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -117,16 +222,9 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
         setIsSearching(true);
         debounceRef.current = setTimeout(async () => {
             try {
-                const searchQuery = query.toLowerCase().includes('chennai')
-                    ? query
-                    : `${query}, Chennai, India`;
-                const res = await fetch(
-                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=6&countrycodes=in&addressdetails=1`
-                );
-                const data: LocationSuggestion[] = await res.json();
+                const data = await searchNominatimLocations(query, 6);
                 setSuggestions(data);
                 if (data.length > 0) {
-                    updateDropdownPosition();
                     setShowDropdown(true);
                 } else {
                     setShowDropdown(false);
@@ -141,16 +239,14 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
         };
-    }, [location, selectedLat, updateDropdownPosition]);
+    }, [location, selectedLat]);
 
-    const handleSelectSuggestion = (s: LocationSuggestion) => {
+    const handleSelectSuggestion = async (s: LocationSuggestion) => {
         const parts = s.display_name.split(',');
         const shortName = parts.length >= 2
             ? `${parts[0].trim()}, ${parts[1].trim()}`
             : parts[0].trim();
-        setLocation(shortName);
-        setSelectedLat(Number.parseFloat(s.lat));
-        setSelectedLng(Number.parseFloat(s.lon));
+        await setLocationFromCoordinates(Number.parseFloat(s.lat), Number.parseFloat(s.lon), shortName);
         setShowDropdown(false);
         setSuggestions([]);
     };
@@ -161,18 +257,40 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
         setSelectedLng(null);
     };
 
+    const setLocationFromCoordinates = async (lat: number, lng: number, addressOverride?: string) => {
+        setSelectedLat(lat);
+        setSelectedLng(lng);
+        setFormError('');
+
+        if (addressOverride) {
+            setLocation(addressOverride);
+            return;
+        }
+
+        try {
+            const address = await reverseGeocode(lat, lng);
+            setLocation(address);
+        } catch {
+            setLocation(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        }
+    };
+
+    const handleUseCurrentLocation = async () => {
+        setIsLocatingCurrent(true);
+        try {
+            const current = await getCurrentLocation();
+            await setLocationFromCoordinates(current.lat, current.lng);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Could not fetch your current location.';
+            setFormError(message);
+        } finally {
+            setIsLocatingCurrent(false);
+        }
+    };
+
     const handleSubmit = async () => {
         if (!canSubmit || selectedLat === null || selectedLng === null || !imageFile) {
-            const missingFields: string[] = [];
-            if (!foodName.trim()) {
-                missingFields.push('Food Name');
-            }
-            if (!selectedLat || !selectedLng) {
-                missingFields.push('Pickup Location');
-            }
-            if (!hasRequiredPhoto) {
-                missingFields.push('Food Photo');
-            }
+            const missingFields = getMissingRequiredFields(foodName, selectedLat, selectedLng, hasRequiredPhoto);
             setFormError(`Please fill these required fields: ${missingFields.join(', ')}.`);
             return;
         }
@@ -259,19 +377,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
 
                 {aiResult && (
                     <div className={`w-full max-w-sm rounded-2xl border px-4 py-3 mb-8 text-left ${
-                        aiResult.freshness === 'Fresh'
-                            ? 'bg-emerald-500/10 border-emerald-500/25'
-                            : aiResult.freshness === 'Spoiled'
-                                ? 'bg-red-500/10 border-red-500/25'
-                                : 'bg-amber-500/10 border-amber-500/25'
+                        getFreshnessVisualClasses(aiResult.freshness).cardClass
                     }`}>
                         <p className="text-[11px] uppercase tracking-widest font-black text-ios-systemGray mb-1">AI Quality Snap</p>
                         <p className={`text-sm font-black ${
-                            aiResult.freshness === 'Fresh'
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : aiResult.freshness === 'Spoiled'
-                                    ? 'text-red-600 dark:text-red-400'
-                                    : 'text-amber-600 dark:text-amber-400'
+                            getFreshnessVisualClasses(aiResult.freshness).textClass
                         }`}>
                             Freshness Class: {aiResult.freshness}
                         </p>
@@ -314,10 +424,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                 <div className="space-y-7">
                     {/* Food Name */}
                     <div>
-                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-3">
+                        <label htmlFor="donor-food-name" className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-3">
                             <Utensils size={12} /> Food Name
                         </label>
                         <input
+                            id="donor-food-name"
                             value={foodName}
                             onChange={(e) => {
                                 setFoodName(e.target.value);
@@ -332,10 +443,11 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
 
                     {/* Description */}
                     <div>
-                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
+                        <label htmlFor="donor-description" className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
                             Description (optional)
                         </label>
                         <textarea
+                            id="donor-description"
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
                             placeholder="How many portions, any dietary info, best-by time..."
@@ -348,12 +460,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                     <div className="grid grid-cols-2 gap-4">
                         {/* Category */}
                         <div>
-                            <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
+                            <p className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
                                 Category
-                            </label>
+                            </p>
                             <div className="grid grid-cols-3 gap-2">
                                 {CATEGORIES.map(cat => (
                                     <button
+                                        type="button"
                                         key={cat.value}
                                         onClick={() => setCategory(cat.value)}
                                         className={`py-3 rounded-xl text-center transition-colors duration-150 ${category === cat.value
@@ -370,12 +483,13 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
 
                         {/* Servings */}
                         <div>
-                            <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
+                            <p className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 mb-3 block">
                                 Servings
-                            </label>
+                            </p>
                             <div className="grid grid-cols-2 gap-2">
                                 {['1-2', '3-5', '6-10', '10+'].map(s => (
                                     <button
+                                        type="button"
                                         key={s}
                                         onClick={() => setServings(s)}
                                         className={`py-3.5 rounded-xl text-[13px] font-bold text-center transition-colors duration-150 ${servings === s
@@ -404,12 +518,23 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
 
                     {/* Location — Live search with Nominatim */}
                     <div className="relative z-[100]">
-                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center gap-2 mb-3">
-                            <MapPin size={12} /> Pickup Location
+                        <label className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest px-1 flex items-center justify-between gap-2 mb-3">
+                            <span className="inline-flex items-center gap-2">
+                                <MapPin size={12} /> Pickup Location
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => void handleUseCurrentLocation()}
+                                disabled={isLocatingCurrent}
+                                className="h-8 px-3 rounded-xl bg-ios-blue/10 text-ios-blue text-[10px] font-black uppercase tracking-wide disabled:opacity-55 inline-flex items-center gap-1.5"
+                            >
+                                <LocateFixed size={12} className={isLocatingCurrent ? 'animate-spin' : ''} />
+                                {isLocatingCurrent ? 'Locating' : 'Use My GPS'}
+                            </button>
                         </label>
+
                         <div className="relative">
                             <input
-                                ref={inputRef}
                                 value={location}
                                 onChange={(e) => handleLocationChange(e.target.value)}
                                 onFocus={() => {
@@ -418,54 +543,36 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                                     }
                                 }}
                                 onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
-                                placeholder="Type area name, e.g. Royapuram..."
+                                placeholder="Search street, landmark, or area..."
                                 className={`w-full h-14 px-5 pr-12 rounded-2xl bg-white dark:bg-ios-darkCard border-none shadow-sm focus:ring-2 transition-all font-semibold placeholder:text-ios-systemGray/40 text-[15px] ${
-                                    selectedLat !== null
+                                    isLocationSelected
                                         ? 'ring-2 ring-emerald-500 focus:ring-emerald-500'
                                         : 'focus:ring-ios-blue'
                                 }`}
                             />
-                            {/* Status indicator */}
                             <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                {isSearching ? (
-                                    <motion.div
-                                        animate={{ rotate: 360 }}
-                                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                                        className="w-5 h-5 border-2 border-ios-blue/30 border-t-ios-blue rounded-full"
-                                    />
-                                ) : selectedLat !== null ? (
-                                    <Check size={18} className="text-emerald-500" strokeWidth={3} />
-                                ) : location.length >= 2 ? (
-                                    <MapPin size={18} className="text-ios-systemGray/40" />
-                                ) : null}
+                                {locationStatusIcon}
                             </div>
                         </div>
 
-                        {/* Suggestions dropdown — directly below input */}
                         {showDropdown && suggestions.length > 0 && (
-                            <div
-                                ref={dropdownRef}
-                                className="absolute left-0 right-0 top-[calc(100%+4px)] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden z-[9999]"
-                            >
-                                <div
-                                    className="overflow-y-auto"
-                                    style={{ maxHeight: '220px' }}
-                                >
+                            <div className="absolute left-0 right-0 top-[calc(100%+4px)] bg-white dark:bg-ios-darkCard rounded-2xl shadow-2xl border border-black/[0.08] dark:border-white/[0.1] overflow-hidden z-[9999]">
+                                <div className="overflow-y-auto" style={{ maxHeight: '220px' }}>
                                     {suggestions.map((s, idx) => {
                                         const parts = s.display_name.split(',');
                                         const primary = parts[0].trim();
-                                        const secondary = parts.slice(1, 3).join(',').trim();
+                                        const secondary = parts.slice(1, 4).join(',').trim();
                                         return (
                                             <button
-                                                key={`${s.lat}-${s.lon}-${idx}`}
+                                                key={`${s.place_id}-${idx}`}
                                                 onMouseDown={(e) => {
                                                     e.preventDefault();
                                                     e.stopPropagation();
-                                                    handleSelectSuggestion(s);
+                                                    void handleSelectSuggestion(s);
                                                 }}
                                                 onTouchEnd={(e) => {
                                                     e.preventDefault();
-                                                    handleSelectSuggestion(s);
+                                                    void handleSelectSuggestion(s);
                                                 }}
                                                 className="w-full px-4 py-4 text-left hover:bg-ios-blue/5 active:bg-ios-blue/10 transition-colors border-b border-black/[0.04] dark:border-white/[0.04] last:border-none flex items-start gap-3 cursor-pointer"
                                             >
@@ -484,15 +591,38 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                         )}
                     </div>
 
-                    {/* Selected location confirmation */}
-                    {selectedLat !== null && selectedLng !== null && (
-                        <div className="flex items-center gap-2.5 px-1 -mt-4">
-                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
-                                📍 {location}
-                            </span>
+                    <div className="space-y-2 -mt-4">
+                        {selectedLat !== null && selectedLng !== null && (
+                            <div className="flex items-center gap-2.5 px-1">
+                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-[12px] font-bold text-emerald-600 dark:text-emerald-400 truncate">
+                                    {location}
+                                </span>
+                            </div>
+                        )}
+                        <div className="h-44 rounded-2xl overflow-hidden border border-black/5 dark:border-white/10">
+                            <MapContainer
+                                center={[selectedLat ?? DEFAULT_PICKER_CENTER.lat, selectedLng ?? DEFAULT_PICKER_CENTER.lng]}
+                                zoom={selectedLat !== null && selectedLng !== null ? 15 : 12}
+                                className="h-full w-full"
+                                scrollWheelZoom
+                            >
+                                <TileLayer
+                                    attribution='&copy; OpenStreetMap contributors'
+                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                />
+                                <DonationMapPicker
+                                    selectedLat={selectedLat}
+                                    selectedLng={selectedLng}
+                                    onPick={(lat, lng) => {
+                                        void setLocationFromCoordinates(lat, lng);
+                                    }}
+                                />
+                                <DonorMapFlyTo selectedLat={selectedLat} selectedLng={selectedLng} />
+                            </MapContainer>
                         </div>
-                    )}
+                        <p className="text-[11px] text-ios-systemGray font-semibold px-1">Tap the map to set or fine-tune your pickup pin.</p>
+                    </div>
 
                 </div>
 
