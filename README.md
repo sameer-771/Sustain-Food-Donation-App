@@ -3,6 +3,8 @@
 
 Sustain is a full-stack food rescue platform where donors post surplus food and nearby receivers claim it before expiry. It includes quality checks, QR-based pickup verification, notifications, ratings, maps, and impact stats.
 
+This README provides a complete overview of the architecture, APIs, setup, and usage.
+
 ## 1) What The Project Does
 
 ### Problem
@@ -124,7 +126,7 @@ Main tables created:
 - ratings
 - notifications
 
-## 8) Run On Another PC (Step-by-Step)
+## 8) Run Locally (Step-by-Step)
 
 ### Prerequisites
 - Node.js 18+
@@ -260,7 +262,7 @@ All major API groups are under /api except compatibility quality routes.
 - Non-food/garbage/rotten outcomes map to bad quality.
 - Frontend badge is simplified to Good Quality vs Bad Quality.
 
-## 12) Demo Flow (For PPT)
+## 12) Demo Flow
 
 1. Register/login as donor.
 2. Upload a clearly spoiled image and show posting is blocked.
