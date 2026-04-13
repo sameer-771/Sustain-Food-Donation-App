@@ -15,9 +15,11 @@ import NotificationToast from './components/NotificationToast';
 import { useAuth } from './src/context/AuthContext';
 import {
   saveFoods,
+  saveNotifications,
   getNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
   checkAndUpdateExpiry,
   syncFoodsFromApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi, verifyQualityInApi,
+  createNotificationInApi, markNotificationReadInApi, markAllNotificationsReadInApi,
 } from './utils/storage';
 
 const EXPIRY_DURATION = 5 * 60 * 60 * 1000; // 5 hours in ms
@@ -53,6 +55,35 @@ const mergeListingsForUi = (localListings: FoodListing[], backendListings: FoodL
   }
 
   return [...deduped.values()].sort((a, b) => toTimestamp(b) - toTimestamp(a));
+};
+
+const notificationTimestamp = (notification: AppNotification): number => {
+  const value = Date.parse(notification.timestamp || '');
+  return Number.isFinite(value) ? value : 0;
+};
+
+const mergeNotificationsForUi = (localNotifications: AppNotification[], backendNotifications: AppNotification[]): AppNotification[] => {
+  const mergedById = new Map<string, AppNotification>();
+
+  for (const notification of localNotifications) {
+    mergedById.set(notification.id, notification);
+  }
+
+  for (const notification of backendNotifications) {
+    const existing = mergedById.get(notification.id);
+    if (!existing) {
+      mergedById.set(notification.id, notification);
+      continue;
+    }
+
+    mergedById.set(notification.id, {
+      ...notification,
+      ...existing,
+      read: existing.read || notification.read,
+    });
+  }
+
+  return [...mergedById.values()].sort((a, b) => notificationTimestamp(b) - notificationTimestamp(a));
 };
 
 const FOOD_IMAGES = [
@@ -159,7 +190,11 @@ const App: React.FC = () => {
         saveFoods(merged);
         return merged;
       });
-      setNotifications(notifs);
+      setNotifications((prev) => {
+        const merged = mergeNotificationsForUi(prev, notifs);
+        saveNotifications(merged);
+        return merged;
+      });
     } catch {
       // Keep local state if backend is unreachable.
     }
@@ -182,6 +217,13 @@ const App: React.FC = () => {
     refreshFromBackend();
 
     setIsLoading(false);
+  }, [refreshFromBackend]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refreshFromBackend();
+    }, 20000);
+    return () => clearInterval(interval);
   }, [refreshFromBackend]);
 
   useEffect(() => {
@@ -212,7 +254,11 @@ const App: React.FC = () => {
                 message: `"${l.title}" has expired.`,
                 relatedListingId: l.id,
               });
-              setNotifications(getNotifications());
+              const localNotifications = getNotifications();
+              setNotifications(localNotifications);
+              void createNotificationInApi(notif).catch(() => {
+                // Keep local notification even if backend write fails.
+              });
               setActiveToast(notif);
               return { ...l, status: 'expired' as const };
             }
@@ -237,13 +283,20 @@ const App: React.FC = () => {
   // --- Notification helper ---
   const pushNotification = useCallback((partial: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => {
     const notif = addNotif(partial);
-    setNotifications(getNotifications());
+    const localNotifications = getNotifications();
+    setNotifications(localNotifications);
     setActiveToast(notif);
+    void createNotificationInApi(notif).catch(() => {
+      // Keep local notification even if backend write fails.
+    });
   }, []);
 
   const markAllRead = useCallback(() => {
     markAllNotificationsRead();
     setNotifications(getNotifications());
+    void markAllNotificationsReadInApi().catch(() => {
+      // Local update already applied.
+    });
   }, []);
 
   // --- Auth handlers ---
@@ -583,6 +636,9 @@ const App: React.FC = () => {
                 onMarkRead={(id: string) => {
                   markNotificationRead(id);
                   setNotifications(getNotifications());
+                  void markNotificationReadInApi(id).catch(() => {
+                    // Local update already applied.
+                  });
                 }}
               />
             )}

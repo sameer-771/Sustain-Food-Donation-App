@@ -1,8 +1,10 @@
 
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Heart, LogOut, Sun, Moon, Package, HandHeart, Star } from 'lucide-react';
+import { User, Heart, LogOut, Sun, Moon, Package, HandHeart, Star, Camera } from 'lucide-react';
 import { AppUser, FoodListing } from '../types';
+
+const PROFILE_PHOTO_KEY_PREFIX = 'sustain_profile_photo_';
 
 interface ProfileViewProps {
   darkMode: boolean;
@@ -13,15 +15,55 @@ interface ProfileViewProps {
 }
 
 const ProfileView: React.FC<ProfileViewProps> = ({ darkMode, onToggleTheme, currentUser, listings, onLogout }) => {
+  const profilePhotoKey = useMemo(() => `${PROFILE_PHOTO_KEY_PREFIX}${currentUser.id}`, [currentUser.id]);
+  const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(profilePhotoKey);
+    setProfilePhotoDataUrl(saved && saved.length > 0 ? saved : null);
+  }, [profilePhotoKey]);
+
   const donorListings = listings.filter(l => l.donorEmail === currentUser.email);
   const foodsPosted = donorListings.length;
-  const foodsClaimed = listings.filter(l => l.claimedBy === currentUser.name).length;
+  const normalizedEmail = currentUser.email.trim().toLowerCase();
+  const foodsClaimed = listings.filter((l) => (l.claimedBy || '').trim().toLowerCase() === normalizedEmail).length;
   const donorRatings = donorListings
     .map(l => l.donor?.rating)
     .filter((rating): rating is number => typeof rating === 'number');
   const donorAverageRating = donorRatings.length
     ? donorRatings.reduce((sum, rating) => sum + rating, 0) / donorRatings.length
     : null;
+
+  const handleProfilePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file.');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Please choose an image under 2 MB.');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        return;
+      }
+      localStorage.setItem(profilePhotoKey, result);
+      setProfilePhotoDataUrl(result);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
 
   return (
     <div className="w-full h-full overflow-y-auto no-scrollbar px-6 pt-16 pb-40">
@@ -33,10 +75,18 @@ const ProfileView: React.FC<ProfileViewProps> = ({ darkMode, onToggleTheme, curr
           className="relative mb-4"
         >
           <div className="w-28 h-28 rounded-[2.5rem] overflow-hidden border-4 border-white dark:border-ios-darkCard shadow-2xl bg-gradient-to-br from-emerald-400 to-blue-500 flex items-center justify-center">
-            <span className="text-white text-4xl font-black">
-              {currentUser.name.charAt(0).toUpperCase()}
-            </span>
+            {profilePhotoDataUrl ? (
+              <img src={profilePhotoDataUrl} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-white text-4xl font-black">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
+          <label className="absolute -bottom-2 -left-2 w-10 h-10 rounded-full bg-ios-blue text-white flex items-center justify-center shadow-lg border-2 border-white dark:border-ios-darkCard cursor-pointer">
+            <Camera size={16} />
+            <input type="file" accept="image/*" className="hidden" onChange={handleProfilePhotoUpload} />
+          </label>
           <div className={`absolute -bottom-2 -right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-ios-darkCard ${
             currentUser.role === 'donor' ? 'bg-emerald-500 text-white' : 'bg-ios-blue text-white'
           }`}>
@@ -52,6 +102,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ darkMode, onToggleTheme, curr
         }`}>
           {currentUser.role === 'donor' ? '🌱 Donor' : '🤝 Receiver'}
         </div>
+        <p className="text-[11px] text-ios-systemGray font-semibold mt-2">Tap the camera icon to upload profile photo</p>
       </div>
 
       {/* Stats */}

@@ -228,8 +228,51 @@ export const syncNotificationsFromApi = async (): Promise<AppNotification[]> => 
     throw new Error(`Failed to fetch notifications: ${res.status}`);
   }
   const notifications = await res.json() as AppNotification[];
-  saveNotifications(notifications);
   return notifications;
+};
+
+export const createNotificationInApi = async (notification: AppNotification): Promise<void> => {
+  const res = await fetch(`${API_BASE_URL}/api/notifications`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      timestamp: notification.timestamp,
+      read: notification.read,
+      relatedListingId: notification.relatedListingId,
+      icon: notification.icon,
+    }),
+  });
+
+  if (!res.ok && res.status !== 409) {
+    const errorText = await res.text();
+    throw new Error(errorText || `Failed to create notification: ${res.status}`);
+  }
+};
+
+export const markNotificationReadInApi = async (id: string): Promise<void> => {
+  const res = await fetch(`${API_BASE_URL}/api/notifications/${encodeURIComponent(id)}/read`, {
+    method: 'PATCH',
+  });
+  if (!res.ok && res.status !== 404) {
+    const errorText = await res.text();
+    throw new Error(errorText || `Failed to mark notification as read: ${res.status}`);
+  }
+};
+
+export const markAllNotificationsReadInApi = async (): Promise<void> => {
+  const res = await fetch(`${API_BASE_URL}/api/notifications/read-all`, {
+    method: 'PATCH',
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || `Failed to mark all notifications as read: ${res.status}`);
+  }
 };
 
 export const hasRatedInApi = async (listingId: string, userId: string): Promise<boolean> => {
