@@ -32,8 +32,6 @@ A full-stack food donation platform that connects donors and receivers, helps re
 |  |  |- core/                                   # Config + auth + DB glue
 |  |- init_supabase.py                           # Programmatic schema init
 |  |- supabase_schema.sql                        # SQL editor schema fallback
-|- .env.example                                  # Frontend env template
-|- backend/.env.example                          # Backend env template
 ```
 
 ## Prerequisites
@@ -46,7 +44,7 @@ A full-stack food donation platform that connects donors and receivers, helps re
 
 ### Frontend (.env)
 
-Create a root `.env` from `.env.example`:
+Create a root `.env` with:
 
 ```env
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
@@ -57,7 +55,7 @@ VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 ### Backend (backend/.env)
 
-Create `backend/.env` from `backend/.env.example`:
+Create `backend/.env` with:
 
 ```env
 SUPABASE_URL=https://your-project-ref.supabase.co
