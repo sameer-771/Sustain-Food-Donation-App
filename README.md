@@ -3,8 +3,6 @@
 
 Sustain is a full-stack food rescue platform where donors post surplus food and nearby receivers claim it before expiry. It includes quality checks, QR-based pickup verification, notifications, ratings, maps, and impact stats.
 
-This README is intentionally detailed so it can be used as a project handover/PPT reference.
-
 ## 1) What The Project Does
 
 ### Problem
