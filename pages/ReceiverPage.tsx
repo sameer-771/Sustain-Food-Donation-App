@@ -7,6 +7,7 @@ import PickupModal from '../components/PickupModal.tsx';
 import QrScannerModal from '../components/QrScannerModal';
 import RatingModal from '../components/RatingModal';
 import { saveRatingToApi, hasRatedInApi, verifyPickupInApi } from '../utils/storage';
+import { showAppPopup } from '../utils/popup';
 import { Coordinates, formatDistanceKm, getCurrentLocation, haversineDistanceKm, watchCurrentLocation } from '../utils/location';
 
 const CATEGORIES: (FoodCategory | 'All')[] = ['All', 'Prepared', 'Bakery', 'Produce', 'Dairy', 'Beverages'];
@@ -160,7 +161,11 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         if (result.success) {
           setPickupListingId(id);
         } else if (result.error) {
-          alert(result.error);
+          showAppPopup({
+            title: 'Unable to claim',
+            message: result.error,
+            tone: 'error',
+          });
         }
         setClaimingId(null);
       })();
@@ -207,11 +212,19 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
       }
     } catch (error) {
       if (error instanceof Error && error.message.includes('409')) {
-        alert('You already submitted a rating for this listing.');
+        showAppPopup({
+          title: 'Already rated',
+          message: 'You already submitted a rating for this listing.',
+          tone: 'info',
+        });
         setRatingListingId(null);
         return;
       }
-      alert('Could not submit rating right now. Please ensure backend is running and try again.');
+      showAppPopup({
+        title: 'Rating failed',
+        message: 'Could not submit rating right now. Please ensure backend is running and try again.',
+        tone: 'error',
+      });
       return;
     }
     setRatingListingId(null);

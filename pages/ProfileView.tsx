@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, Heart, LogOut, Sun, Moon, Package, HandHeart, Star, Camera } from 'lucide-react';
 import { AppUser, FoodListing } from '../types';
+import { showAppPopup } from '../utils/popup';
 
 const PROFILE_PHOTO_KEY_PREFIX = 'sustain_profile_photo_';
 
@@ -41,13 +42,21 @@ const ProfileView: React.FC<ProfileViewProps> = ({ darkMode, onToggleTheme, curr
     }
 
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file.');
+      showAppPopup({
+        title: 'Invalid file',
+        message: 'Please select an image file.',
+        tone: 'error',
+      });
       event.target.value = '';
       return;
     }
 
     if (file.size > 2 * 1024 * 1024) {
-      alert('Please choose an image under 2 MB.');
+      showAppPopup({
+        title: 'File too large',
+        message: 'Please choose an image under 2 MB.',
+        tone: 'error',
+      });
       event.target.value = '';
       return;
     }

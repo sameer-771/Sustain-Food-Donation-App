@@ -7,6 +7,7 @@ import { FoodCategory, FoodListing, PickupCodeResult, QualityCheckResult } from 
 import QualitySnapUpload from '../components/QualitySnapUpload';
 import DonorPickupQrModal from '../components/DonorPickupQrModal';
 import { generatePickupCodeInApi } from '../utils/storage';
+import { showAppPopup } from '../utils/popup';
 import { selectedLocationMarkerIcon } from '../utils/leaflet';
 import {
     Coordinates,
@@ -359,9 +360,17 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
             const message = error instanceof Error ? error.message : 'Could not generate pickup QR right now.';
             await onRefresh?.();
             if (message.toLowerCase().includes('claimed listings')) {
-                alert('This listing is not claimed on the server yet. Please claim it again from a receiver account.');
+                showAppPopup({
+                    title: 'QR unavailable',
+                    message: 'This listing is not claimed on the server yet. Please claim it again from a receiver account.',
+                    tone: 'error',
+                });
             } else {
-                alert(message);
+                showAppPopup({
+                    title: 'QR generation failed',
+                    message,
+                    tone: 'error',
+                });
             }
         } finally {
             setPickupCodeLoadingId(null);

@@ -12,7 +12,9 @@ import SignupPage from './pages/SignupPage';
 import BottomNav from './components/BottomNav';
 import RoleToggle from './components/RoleToggle';
 import NotificationToast from './components/NotificationToast';
+import AppPopupModal from './components/AppPopupModal';
 import { useAuth } from './src/context/AuthContext';
+import { APP_POPUP_EVENT, AppPopupPayload, showAppPopup } from './utils/popup';
 import {
   saveFoods,
   saveNotifications,
@@ -176,6 +178,7 @@ const App: React.FC = () => {
   const [listings, setListings] = useState<FoodListing[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [activeToast, setActiveToast] = useState<AppNotification | null>(null);
+  const [activePopup, setActivePopup] = useState<AppPopupPayload | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -225,6 +228,25 @@ const App: React.FC = () => {
     }, 20000);
     return () => clearInterval(interval);
   }, [refreshFromBackend]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handlePopupEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<AppPopupPayload>;
+      if (!customEvent.detail?.message) {
+        return;
+      }
+      setActivePopup(customEvent.detail);
+    };
+
+    window.addEventListener(APP_POPUP_EVENT, handlePopupEvent as EventListener);
+    return () => {
+      window.removeEventListener(APP_POPUP_EVENT, handlePopupEvent as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -555,6 +577,11 @@ const App: React.FC = () => {
     <div className="relative h-screen w-full max-w-md mx-auto overflow-hidden bg-ios-lightBg dark:bg-ios-darkBg text-black dark:text-white flex flex-col selection:bg-ios-blue/30">
 
       {/* Notification Toast */}
+      <AppPopupModal
+        popup={activePopup}
+        onClose={() => setActivePopup(null)}
+      />
+
       <NotificationToast
         notification={activeToast}
         onDismiss={() => setActiveToast(null)}
@@ -623,7 +650,11 @@ const App: React.FC = () => {
                 onClaim={(id: string) => {
                   void handleClaimListing(id).then((result) => {
                     if (!result.success) {
-                      alert(result.error);
+                      showAppPopup({
+                        title: 'Unable to claim',
+                        message: result.error,
+                        tone: 'error',
+                      });
                     }
                   });
                 }}
