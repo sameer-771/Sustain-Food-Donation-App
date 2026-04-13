@@ -6,7 +6,7 @@ import FoodCard from '../components/FoodCard';
 import PickupModal from '../components/PickupModal.tsx';
 import QrScannerModal from '../components/QrScannerModal';
 import RatingModal from '../components/RatingModal';
-import { saveRatingToApi, hasRatedInApi, verifyPickupInApi } from '../utils/storage';
+import { ApiRequestError, saveRatingToApi, hasRatedInApi, verifyPickupInApi } from '../utils/storage';
 import { showAppPopup } from '../utils/popup';
 import { Coordinates, formatDistanceKm, getCurrentLocation, haversineDistanceKm, watchCurrentLocation } from '../utils/location';
 
@@ -211,7 +211,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         await onFeedbackSubmitted();
       }
     } catch (error) {
-      if (error instanceof Error && error.message.includes('409')) {
+      if (error instanceof ApiRequestError && error.status === 409) {
         showAppPopup({
           title: 'Already rated',
           message: 'You already submitted a rating for this listing.',
@@ -220,9 +220,28 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         setRatingListingId(null);
         return;
       }
+
+      if (error instanceof ApiRequestError && error.status === 401) {
+        showAppPopup({
+          title: 'Session expired',
+          message: 'Please sign in again and submit your feedback.',
+          tone: 'error',
+        });
+        return;
+      }
+
+      if (error instanceof ApiRequestError) {
+        showAppPopup({
+          title: 'Rating failed',
+          message: error.message,
+          tone: 'error',
+        });
+        return;
+      }
+
       showAppPopup({
         title: 'Rating failed',
-        message: 'Could not submit rating right now. Please ensure backend is running and try again.',
+        message: 'Could not submit rating right now. Please try again.',
         tone: 'error',
       });
       return;

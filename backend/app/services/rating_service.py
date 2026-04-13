@@ -91,13 +91,17 @@ def list_ratings() -> list[dict[str, Any]]:
     return [_row_to_rating(row) for row in rows]
 
 
-def create_rating(payload: RatingCreate) -> dict[str, Any]:
+def create_rating(payload: RatingCreate, actor_user_id: str | None = None) -> dict[str, Any]:
+    effective_user_id = (actor_user_id or payload.userId or "").strip()
+    if not effective_user_id:
+        raise HTTPException(status_code=400, detail="Missing user context for rating")
+
     client = get_supabase_client(use_service_role=True)
     existing = (
         client.table("ratings")
         .select("id")
         .eq("listing_id", payload.listingId)
-        .eq("user_id", payload.userId)
+        .eq("user_id", effective_user_id)
         .limit(1)
         .execute()
     ).data or []
@@ -109,7 +113,7 @@ def create_rating(payload: RatingCreate) -> dict[str, Any]:
         .insert(
             {
                 "listing_id": payload.listingId,
-                "user_id": payload.userId,
+                "user_id": effective_user_id,
                 "rating": payload.rating,
                 "feedback": payload.feedback,
                 "timestamp": payload.timestamp,

@@ -34,6 +34,16 @@ interface VerifyPickupApiResponse {
   food: FoodListing;
 }
 
+export class ApiRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+  }
+}
+
 const getAccessToken = async (): Promise<string | null> => {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
@@ -294,8 +304,18 @@ export const saveRatingToApi = async (rating: Rating): Promise<void> => {
   });
 
   if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(errorText || `Failed to save rating: ${res.status}`);
+    const rawBody = await res.text();
+    let detail = rawBody;
+    try {
+      const parsed = JSON.parse(rawBody) as { detail?: string };
+      if (parsed?.detail) {
+        detail = parsed.detail;
+      }
+    } catch {
+      // Keep plain response body as detail.
+    }
+
+    throw new ApiRequestError(detail || `Failed to save rating: ${res.status}`, res.status);
   }
 };
 
