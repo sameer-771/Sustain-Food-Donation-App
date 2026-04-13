@@ -191,7 +191,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (currentUser) {
-      setUserRole(currentUser.role);
+      setUserRole(currentUser.role === 'donor' ? 'donor' : 'receiver');
     }
   }, [currentUser]);
 
@@ -474,7 +474,8 @@ const App: React.FC = () => {
     }
   }, [listings, pushNotification, refreshFromBackend]);
 
-  const showRoleToggle = activeView === 'home' && currentUser;
+  const effectiveUserRole: UserRole = currentUser?.role === 'donor' ? userRole : 'receiver';
+  const showRoleToggle = activeView === 'home' && currentUser?.role === 'donor';
 
   // --- Loading ---
   if (isLoading || isAuthLoading) {
@@ -508,11 +509,11 @@ const App: React.FC = () => {
 
       {/* Dynamic Background */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className={`absolute -top-[10%] -left-[10%] w-[100%] h-[60%] blur-[100px] rounded-full transition-colors duration-700 ${userRole === 'donor'
+        <div className={`absolute -top-[10%] -left-[10%] w-[100%] h-[60%] blur-[100px] rounded-full transition-colors duration-700 ${effectiveUserRole === 'donor'
           ? 'bg-emerald-500/10 dark:bg-emerald-500/5'
           : 'bg-ios-blue/10 dark:bg-ios-blue/5'
           }`} />
-        <div className={`absolute bottom-[5%] -right-[15%] w-[90%] h-[70%] blur-[100px] rounded-full transition-colors duration-700 ${userRole === 'donor'
+        <div className={`absolute bottom-[5%] -right-[15%] w-[90%] h-[70%] blur-[100px] rounded-full transition-colors duration-700 ${effectiveUserRole === 'donor'
           ? 'bg-ios-systemGreen/10 dark:bg-ios-systemGreen/5'
           : 'bg-violet-500/10 dark:bg-violet-500/5'
           }`} />
@@ -522,7 +523,14 @@ const App: React.FC = () => {
       {showRoleToggle && (
         <div className="relative z-20 pt-12 pb-3">
           <div className="px-5">
-            <RoleToggle role={userRole} onRoleChange={setUserRole} />
+            <RoleToggle
+              role={effectiveUserRole}
+              onRoleChange={(nextRole) => {
+                if (currentUser?.role === 'donor') {
+                  setUserRole(nextRole);
+                }
+              }}
+            />
           </div>
         </div>
       )}
@@ -531,14 +539,14 @@ const App: React.FC = () => {
       <main className="flex-1 relative overflow-hidden">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
-            key={activeView === 'home' ? `home-${userRole}` : activeView}
+            key={activeView === 'home' ? `home-${effectiveUserRole}` : activeView}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className="absolute inset-0"
           >
-            {activeView === 'home' && userRole === 'donor' && (
+            {activeView === 'home' && effectiveUserRole === 'donor' && (
               <DonorPage
                 listings={listings}
                 currentUserEmail={currentUser?.email || ''}
@@ -546,7 +554,7 @@ const App: React.FC = () => {
                 onRefresh={refreshFromBackend}
               />
             )}
-            {activeView === 'home' && userRole === 'receiver' && (
+            {activeView === 'home' && effectiveUserRole === 'receiver' && (
               <ReceiverPage
                 listings={listings}
                 onClaim={handleClaimListing}
@@ -595,7 +603,7 @@ const App: React.FC = () => {
       <BottomNav
         activeView={activeView}
         onViewChange={(view) => setActiveView(view)}
-        userRole={userRole}
+        userRole={effectiveUserRole}
         notificationCount={unreadCount}
       />
     </div>

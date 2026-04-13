@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, UserPlus } from 'lucide-react';
+import { User, Mail, Lock, UserPlus, Heart, Search } from 'lucide-react';
 import { UserRole } from '../types';
 
 interface SignupPageProps {
@@ -13,7 +13,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignup, onGoToLogin }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role] = useState<UserRole>('donor');
+  const [role, setRole] = useState<UserRole>('donor');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -56,6 +56,40 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSignup, onGoToLogin }) => {
       </motion.div>
 
       <form onSubmit={handleSubmit} className="w-full space-y-4">
+        {/* Role */}
+        <div>
+          <p className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest mb-2 px-1">Create Account As</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setRole('donor')}
+              className={`h-12 rounded-xl border text-sm font-black flex items-center justify-center gap-2 transition-all ${
+                role === 'donor'
+                  ? 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/25'
+                  : 'bg-white dark:bg-ios-darkCard border-black/10 dark:border-white/10 text-ios-systemGray'
+              }`}
+            >
+              <Heart size={16} className={role === 'donor' ? 'fill-white/30' : ''} />
+              Donor
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole('receiver')}
+              className={`h-12 rounded-xl border text-sm font-black flex items-center justify-center gap-2 transition-all ${
+                role === 'receiver'
+                  ? 'bg-blue-500 text-white border-blue-500 shadow-lg shadow-blue-500/25'
+                  : 'bg-white dark:bg-ios-darkCard border-black/10 dark:border-white/10 text-ios-systemGray'
+              }`}
+            >
+              <Search size={16} />
+              Receiver
+            </button>
+          </div>
+          <p className="text-[11px] text-ios-systemGray font-semibold mt-2 px-1">
+            Donor can donate and receive. Receiver can only claim and pickup.
+          </p>
+        </div>
+
         {/* Name */}
         <div className="relative">
           <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-ios-systemGray" />

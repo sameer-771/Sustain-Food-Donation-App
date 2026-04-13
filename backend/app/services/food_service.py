@@ -150,7 +150,10 @@ def list_foods(user_lat: float | None = None, user_lng: float | None = None, rad
     return [_row_to_food(row) for row in filtered_rows]
 
 
-def create_food(payload: FoodCreate, actor_user_id: str, actor_email: str) -> dict[str, Any]:
+def create_food(payload: FoodCreate, actor_user_id: str, actor_email: str, actor_role: str) -> dict[str, Any]:
+    if actor_role != "donor":
+        raise HTTPException(status_code=403, detail="Only donor accounts can post donations")
+
     if payload.donorId and payload.donorId != actor_user_id:
         raise HTTPException(status_code=403, detail="Cannot create a donation for another user")
 

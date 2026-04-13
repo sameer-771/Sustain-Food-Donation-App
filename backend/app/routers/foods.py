@@ -40,7 +40,7 @@ def add_food(
     payload: FoodCreate,
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> dict[str, Any]:
-    return create_food(payload, user.id, user.email)
+    return create_food(payload, user.id, user.email, user.role)
 
 
 @router.patch(
