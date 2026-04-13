@@ -277,7 +277,7 @@ export const createFoodInApi = async (food: FoodListing): Promise<FoodListing | 
   return created;
 };
 
-export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>): Promise<void> => {
+export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>): Promise<FoodListing> => {
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(`${API_BASE_URL}/api/foods/${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -289,6 +289,9 @@ export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>)
     const errorText = await res.text();
     throw new Error(errorText || `Failed to update food: ${res.status}`);
   }
+
+  const updated = await res.json() as FoodListing;
+  return updated;
 };
 
 export const verifyQualityInApi = async (foodId: string, imageFile: File): Promise<VerifyQualityApiResponse> => {

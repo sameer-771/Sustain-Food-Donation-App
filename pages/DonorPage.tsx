@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Utensils, MapPin, Send, Check, LocateFixed } from 'lucide-react';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
@@ -177,7 +177,18 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && hasRequiredPhoto && !isSubmitting;
     const isLocationSelected = selectedLat !== null && selectedLng !== null;
     const locationStatusIcon = getLocationStatusIcon(isSearching, isLocationSelected, location.length);
-    const claimedListings = listings.filter((listing) => listing.donorEmail === currentUserEmail && listing.status === 'claimed');
+    const claimedListings = useMemo(() => {
+        const claimed = listings.filter((listing) => listing.donorEmail === currentUserEmail && listing.status === 'claimed');
+        const byId = new Map<string, FoodListing>();
+        for (const listing of claimed) {
+            byId.set(listing.id, listing);
+        }
+        return [...byId.values()];
+    }, [listings, currentUserEmail]);
+
+    useEffect(() => {
+        void onRefresh?.();
+    }, [onRefresh]);
 
     const renderClaimedSection = () => {
         if (claimedListings.length === 0) {
@@ -346,7 +357,12 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
             await onRefresh?.();
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Could not generate pickup QR right now.';
-            alert(message);
+            await onRefresh?.();
+            if (message.toLowerCase().includes('claimed listings')) {
+                alert('This listing is not claimed on the server yet. Please claim it again from a receiver account.');
+            } else {
+                alert(message);
+            }
         } finally {
             setPickupCodeLoadingId(null);
         }

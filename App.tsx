@@ -23,6 +23,8 @@ import {
 const EXPIRY_DURATION = 5 * 60 * 60 * 1000; // 5 hours in ms
 const LOCAL_LISTING_GRACE_MS = 10 * 60 * 1000;
 
+type ClaimResult = { success: true } | { success: false; error: string };
+
 const toTimestamp = (listing: FoodListing): number => {
   const value = Date.parse(listing.createdAt || listing.cookedAt || '');
   return Number.isFinite(value) ? value : 0;
@@ -381,37 +383,76 @@ const App: React.FC = () => {
   }, [pushNotification, currentUser, refreshFromBackend]);
 
   // --- Receiver claims (race-condition safe) ---
-  const handleClaimListing = useCallback((id: string): boolean => {
+  const handleClaimListing = useCallback(async (id: string): Promise<ClaimResult> => {
     const listing = listings.find(l => l.id === id);
-    if (!listing) return false;
+    if (!listing) {
+      return { success: false, error: 'Listing not found.' };
+    }
 
     // Validate: must be available and not expired
-    if (listing.status !== 'available') return false;
-    if (Date.now() >= new Date(listing.expiresAt).getTime()) return false;
+    if (listing.status !== 'available') {
+      return { success: false, error: 'This listing is no longer available.' };
+    }
+    if (Date.now() >= new Date(listing.expiresAt).getTime()) {
+      return { success: false, error: 'This listing has already expired.' };
+    }
 
-    setListings((prev) => {
-      const updated = prev.map((item) => item.id === id ? {
-        ...item,
+    const actorEmail = (currentUser?.email || '').trim().toLowerCase();
+    const listingDonorEmail = (listing.donorEmail || '').trim().toLowerCase();
+    const actorId = currentUser?.id || '';
+    const listingDonorId = listing.donorId || '';
+
+    if ((listingDonorEmail && actorEmail && listingDonorEmail === actorEmail) || (listingDonorId && actorId && listingDonorId === actorId)) {
+      return { success: false, error: 'You cannot claim your own donation. Use a separate receiver account for demo.' };
+    }
+
+    try {
+      const updatedFromApi = await updateFoodInApi(id, {
         status: 'claimed',
         claimed: true,
         claimedBy: currentUser?.email || 'unknown',
-      } : item);
-      saveFoods(updated);
-      return updated;
-    });
+      });
 
-    updateFoodInApi(id, { status: 'claimed', claimed: true, claimedBy: currentUser?.email || 'unknown' }).catch(() => {
-      // Keep local UX responsive even if backend is temporarily unavailable.
-    });
+      setListings((prev) => {
+        const updated = prev.map((item) => item.id === id ? updatedFromApi : item);
+        saveFoods(updated);
+        return updated;
+      });
 
-    pushNotification({
-      type: 'claimed',
-      title: 'Food Claimed! 🙌',
-      message: `"${listing.title}" was claimed successfully. Head to ${listing.location.address} for pickup.`,
-      relatedListingId: id,
-    });
-    return true;
-  }, [listings, pushNotification, currentUser]);
+      void refreshFromBackend();
+
+      pushNotification({
+        type: 'claimed',
+        title: 'Food Claimed! 🙌',
+        message: `"${listing.title}" was claimed successfully. Head to ${listing.location.address} for pickup.`,
+        relatedListingId: id,
+      });
+      return { success: true };
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Unable to claim this listing right now.';
+      let parsedMessage = rawMessage;
+      try {
+        const parsed = JSON.parse(rawMessage) as { detail?: string };
+        if (parsed?.detail) {
+          parsedMessage = parsed.detail;
+        }
+      } catch {
+        // Keep original raw message.
+      }
+
+      const normalized = parsedMessage.toLowerCase();
+      if (normalized.includes('donor cannot claim own listing')) {
+        return { success: false, error: 'You cannot claim your own donation. Use a separate receiver account for demo.' };
+      }
+      if (normalized.includes('not available')) {
+        return { success: false, error: 'This listing was already claimed by someone else.' };
+      }
+      if (normalized.includes('unauthorized') || normalized.includes('401')) {
+        return { success: false, error: 'Session expired. Please sign in again.' };
+      }
+      return { success: false, error: parsedMessage || 'Unable to claim this listing right now.' };
+    }
+  }, [listings, pushNotification, currentUser, refreshFromBackend]);
 
   // --- Pickup confirmed (mark as completed only after secure verification) ---
   const handlePickupConfirmed = useCallback((id: string) => {
@@ -421,10 +462,7 @@ const App: React.FC = () => {
       saveFoods(updated);
       return updated;
     });
-
-    updateFoodInApi(id, { status: 'completed' }).catch(() => {
-      // Keep local UX responsive even if backend is temporarily unavailable.
-    });
+    void refreshFromBackend();
 
     if (listing) {
       pushNotification({
@@ -434,7 +472,7 @@ const App: React.FC = () => {
         relatedListingId: id,
       });
     }
-  }, [listings, pushNotification]);
+  }, [listings, pushNotification, refreshFromBackend]);
 
   const showRoleToggle = activeView === 'home' && currentUser;
 
@@ -521,7 +559,13 @@ const App: React.FC = () => {
             {activeView === 'map' && (
               <MapView
                 listings={listings.filter(l => l.status === 'available')}
-                onClaim={handleClaimListing}
+                onClaim={(id: string) => {
+                  void handleClaimListing(id).then((result) => {
+                    if (!result.success) {
+                      alert(result.error);
+                    }
+                  });
+                }}
               />
             )}
             {activeView === 'activity' && (

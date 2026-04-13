@@ -16,7 +16,7 @@ const DISTANCE_HYSTERESIS_KM = 0.2;
 
 interface ReceiverPageProps {
   listings: FoodListing[];
-  onClaim: (id: string) => boolean;
+  onClaim: (id: string) => Promise<{ success: boolean; error?: string }>;
   onPickupConfirmed: (id: string) => void;
   onFeedbackSubmitted?: () => Promise<void>;
   currentUserEmail: string;
@@ -155,11 +155,15 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     setClaimingId(id);
 
     setTimeout(() => {
-      const success = onClaim(id);
-      if (success) {
-        setPickupListingId(id);
-      }
-      setClaimingId(null);
+      void (async () => {
+        const result = await onClaim(id);
+        if (result.success) {
+          setPickupListingId(id);
+        } else if (result.error) {
+          alert(result.error);
+        }
+        setClaimingId(null);
+      })();
     }, 300);
   }, [claimingId, onClaim]);
 
