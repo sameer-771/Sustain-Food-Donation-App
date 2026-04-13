@@ -12,6 +12,7 @@ import { Coordinates, formatDistanceKm, getCurrentLocation, haversineDistanceKm,
 const CATEGORIES: (FoodCategory | 'All')[] = ['All', 'Prepared', 'Bakery', 'Produce', 'Dairy', 'Beverages'];
 type SortMode = 'nearest' | 'freshest';
 type LocationStatus = 'idle' | 'loading' | 'ready' | 'error';
+const DISTANCE_HYSTERESIS_KM = 0.2;
 
 interface ReceiverPageProps {
   listings: FoodListing[];
@@ -136,7 +137,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     }
 
     if (receiverLocation) {
-      result = result.filter((listing) => listing.location.distanceValue <= maxDistance);
+      result = result.filter((listing) => listing.location.distanceValue <= (maxDistance + DISTANCE_HYSTERESIS_KM));
     }
 
     if (sortMode === 'nearest') {

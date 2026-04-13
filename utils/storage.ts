@@ -256,7 +256,7 @@ export const saveRatingToApi = async (rating: Rating): Promise<void> => {
   }
 };
 
-export const createFoodInApi = async (food: FoodListing): Promise<void> => {
+export const createFoodInApi = async (food: FoodListing): Promise<FoodListing | null> => {
   const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(`${API_BASE_URL}/api/foods`, {
     method: 'POST',
@@ -264,10 +264,17 @@ export const createFoodInApi = async (food: FoodListing): Promise<void> => {
     body: JSON.stringify(food),
   });
 
-  if (!res.ok && res.status !== 409) {
+  if (res.status === 409) {
+    return null;
+  }
+
+  if (!res.ok) {
     const errorText = await res.text();
     throw new Error(errorText || `Failed to create food: ${res.status}`);
   }
+
+  const created = await res.json() as FoodListing;
+  return created;
 };
 
 export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>): Promise<void> => {

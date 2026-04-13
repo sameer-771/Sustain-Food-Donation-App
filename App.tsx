@@ -14,13 +14,44 @@ import RoleToggle from './components/RoleToggle';
 import NotificationToast from './components/NotificationToast';
 import { useAuth } from './src/context/AuthContext';
 import {
-  saveFoods, addFood, updateFood,
+  saveFoods,
   getNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
   checkAndUpdateExpiry,
   syncFoodsFromApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi, verifyQualityInApi,
 } from './utils/storage';
 
 const EXPIRY_DURATION = 5 * 60 * 60 * 1000; // 5 hours in ms
+const LOCAL_LISTING_GRACE_MS = 10 * 60 * 1000;
+
+const toTimestamp = (listing: FoodListing): number => {
+  const value = Date.parse(listing.createdAt || listing.cookedAt || '');
+  return Number.isFinite(value) ? value : 0;
+};
+
+const mergeListingsForUi = (localListings: FoodListing[], backendListings: FoodListing[]): FoodListing[] => {
+  const backendById = new Map(backendListings.map((listing) => [listing.id, listing]));
+  const now = Date.now();
+  const merged: FoodListing[] = [...backendListings];
+
+  for (const local of localListings) {
+    if (backendById.has(local.id)) {
+      continue;
+    }
+
+    const isRecentlyCreated = now - toTimestamp(local) <= LOCAL_LISTING_GRACE_MS;
+    const isStillActive = local.status === 'available' || local.status === 'claimed';
+    if (isRecentlyCreated && isStillActive) {
+      merged.push(local);
+    }
+  }
+
+  const deduped = new Map<string, FoodListing>();
+  for (const listing of merged) {
+    deduped.set(listing.id, listing);
+  }
+
+  return [...deduped.values()].sort((a, b) => toTimestamp(b) - toTimestamp(a));
+};
 
 const FOOD_IMAGES = [
   'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80&w=600',
@@ -121,7 +152,11 @@ const App: React.FC = () => {
         syncFoodsFromApi(),
         syncNotificationsFromApi(),
       ]);
-      setListings(foods);
+      setListings((prev) => {
+        const merged = mergeListingsForUi(prev, foods);
+        saveFoods(merged);
+        return merged;
+      });
       setNotifications(notifs);
     } catch {
       // Keep local state if backend is unreachable.
@@ -287,11 +322,22 @@ const App: React.FC = () => {
       donorId: currentUser?.id,
     };
 
-    const updatedFoods = addFood(newListing);
-    setListings(updatedFoods);
+    setListings((prev) => {
+      const updated = [newListing, ...prev.filter((item) => item.id !== newListing.id)];
+      saveFoods(updated);
+      return updated;
+    });
 
     try {
-      await createFoodInApi(newListing);
+      const created = await createFoodInApi(newListing);
+      if (created) {
+        setListings((prev) => {
+          const updated = [created, ...prev.filter((item) => item.id !== created.id)];
+          saveFoods(updated);
+          return updated;
+        });
+      }
+      void refreshFromBackend();
     } catch {
       // Keep local UX responsive even if backend is temporarily unavailable.
     }
@@ -332,7 +378,7 @@ const App: React.FC = () => {
       relatedListingId: newListing.id,
     });
     return qualityResult;
-  }, [pushNotification, currentUser]);
+  }, [pushNotification, currentUser, refreshFromBackend]);
 
   // --- Receiver claims (race-condition safe) ---
   const handleClaimListing = useCallback((id: string): boolean => {
@@ -343,8 +389,16 @@ const App: React.FC = () => {
     if (listing.status !== 'available') return false;
     if (Date.now() >= new Date(listing.expiresAt).getTime()) return false;
 
-    const updated = updateFood(id, { status: 'claimed', claimed: true, claimedBy: currentUser?.email || 'unknown' });
-    setListings(updated);
+    setListings((prev) => {
+      const updated = prev.map((item) => item.id === id ? {
+        ...item,
+        status: 'claimed',
+        claimed: true,
+        claimedBy: currentUser?.email || 'unknown',
+      } : item);
+      saveFoods(updated);
+      return updated;
+    });
 
     updateFoodInApi(id, { status: 'claimed', claimed: true, claimedBy: currentUser?.email || 'unknown' }).catch(() => {
       // Keep local UX responsive even if backend is temporarily unavailable.
@@ -362,8 +416,11 @@ const App: React.FC = () => {
   // --- Pickup confirmed (mark as completed only after secure verification) ---
   const handlePickupConfirmed = useCallback((id: string) => {
     const listing = listings.find(l => l.id === id);
-    const updated = updateFood(id, { status: 'completed' });
-    setListings(updated);
+    setListings((prev) => {
+      const updated = prev.map((item) => item.id === id ? { ...item, status: 'completed' } : item);
+      saveFoods(updated);
+      return updated;
+    });
 
     updateFoodInApi(id, { status: 'completed' }).catch(() => {
       // Keep local UX responsive even if backend is temporarily unavailable.
