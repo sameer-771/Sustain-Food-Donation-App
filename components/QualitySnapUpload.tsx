@@ -36,10 +36,14 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
 
         try {
             const response = await verifyQualityPreviewInApi(file);
-            const status: LocalQualityStatus = response.quality.freshness === 'Fresh' ? 'good' : 'bad';
+            const statusMap: Record<LocalQualityResult['freshness'], LocalQualityStatus> = {
+                Fresh: 'good',
+                Questionable: 'good',
+                Spoiled: 'bad',
+            };
             setQualityResult({
-                status,
                 freshness: response.quality.freshness,
+                status: statusMap[response.quality.freshness],
                 confidence: response.quality.confidence,
             });
         } catch (error) {
@@ -72,9 +76,11 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const qualityBadgeClass = qualityResult?.status === 'good'
-        ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-        : 'bg-red-500/12 border-red-500/30 text-red-600 dark:text-red-400';
+    const qualityBadgeClass = !qualityResult
+        ? 'bg-ios-blue/10 border-ios-blue/20 text-ios-blue'
+        : qualityResult.status === 'good'
+            ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+            : 'bg-red-500/12 border-red-500/30 text-red-600 dark:text-red-400';
 
     return (
         <div className="space-y-3">
@@ -153,7 +159,7 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
                         <motion.div
                             initial={{ y: 20, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
-                            className={`absolute bottom-3 left-3 right-3 px-4 py-2.5 rounded-2xl border backdrop-blur-xl ${qualityResult ? qualityBadgeClass : 'bg-ios-blue/10 border-ios-blue/20 text-ios-blue'}`}
+                            className={`absolute bottom-3 left-3 right-3 px-4 py-2.5 rounded-2xl border backdrop-blur-xl ${qualityBadgeClass}`}
                         >
                             {isAnalyzing ? (
                                 <div className="flex items-center gap-2.5">

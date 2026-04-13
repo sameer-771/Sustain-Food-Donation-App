@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Utensils, MapPin, Send, Check, LocateFixed } from 'lucide-react';
+import { Utensils, MapPin, Send, Check, LocateFixed, Trash2 } from 'lucide-react';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { FoodCategory, FoodListing, PickupCodeResult, QualityCheckResult } from '../types';
 import QualitySnapUpload from '../components/QualitySnapUpload';
@@ -96,6 +96,50 @@ const getMissingRequiredFields = (
     return missingFields;
 };
 
+const getListingStatusMeta = (status: FoodListing['status']) => {
+    if (status === 'available') {
+        return {
+            label: 'Available',
+            className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+        };
+    }
+
+    if (status === 'claimed') {
+        return {
+            label: 'Claimed',
+            className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+        };
+    }
+
+    if (status === 'completed' || status === 'picked') {
+        return {
+            label: 'Completed',
+            className: 'bg-ios-blue/10 text-ios-blue border-ios-blue/20',
+        };
+    }
+
+    return {
+        label: 'Expired',
+        className: 'bg-ios-systemGray/15 text-ios-systemGray border-ios-systemGray/20',
+    };
+};
+
+const getPickupQrErrorPopup = (message: string) => {
+    if (message.toLowerCase().includes('claimed listings')) {
+        return {
+            title: 'QR unavailable',
+            message: 'This listing is not claimed on the server yet. Please claim it again from a receiver account.',
+            tone: 'error' as const,
+        };
+    }
+
+    return {
+        title: 'QR generation failed',
+        message,
+        tone: 'error' as const,
+    };
+};
+
 interface DonationMapPickerProps {
     selectedLat: number | null;
     selectedLng: number | null;
@@ -134,9 +178,84 @@ const DonorMapFlyTo: React.FC<DonorMapFlyToProps> = ({ selectedLat, selectedLng 
     return null;
 };
 
+interface PostedListingsPanelProps {
+    postedListings: FoodListing[];
+    pickupCodeLoadingId: string | null;
+    removeLoadingId: string | null;
+    onGeneratePickupCode: (listing: FoodListing) => void;
+    onRequestRemove: (listing: FoodListing) => void;
+}
+
+const PostedListingsPanel: React.FC<PostedListingsPanelProps> = ({
+    postedListings,
+    pickupCodeLoadingId,
+    removeLoadingId,
+    onGeneratePickupCode,
+    onRequestRemove,
+}) => {
+    if (postedListings.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="mt-3 mb-6 w-full self-stretch text-left">
+            <h3 className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest mb-3 px-1">Your Posted Donations</h3>
+            <p className="text-[12px] font-semibold text-ios-systemGray px-1 mb-3">Only you can remove these listings.</p>
+            <div className="space-y-3">
+                {postedListings.map((listing) => {
+                    const statusMeta = getListingStatusMeta(listing.status);
+                    const isRemoveLoading = removeLoadingId === listing.id;
+                    const isQrLoading = pickupCodeLoadingId === listing.id;
+
+                    return (
+                        <div key={listing.id} className="glass-panel rounded-2xl p-4 border border-black/5 dark:border-white/10">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0 flex-1">
+                                    <p className="font-black text-sm">{listing.title}</p>
+                                    <div className="mt-1 flex items-center gap-2 min-w-0">
+                                        <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${statusMeta.className}`}>
+                                            {statusMeta.label}
+                                        </span>
+                                        <p className="min-w-0 flex-1 text-xs text-ios-systemGray font-semibold truncate">
+                                            {listing.status === 'claimed'
+                                                ? `Claimed by ${listing.claimedBy || 'Receiver'}`
+                                                : listing.location.address}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="shrink-0 flex items-center justify-end gap-2 sm:flex-col sm:items-end">
+                                    {listing.status === 'claimed' && (
+                                        <button
+                                            onClick={() => onGeneratePickupCode(listing)}
+                                            disabled={isQrLoading || isRemoveLoading}
+                                            className="px-4 h-10 min-w-[102px] rounded-xl bg-ios-blue text-white text-xs font-black uppercase tracking-wide disabled:opacity-60"
+                                        >
+                                            {isQrLoading ? 'Generating...' : 'Show QR'}
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => onRequestRemove(listing)}
+                                        disabled={isRemoveLoading || isQrLoading}
+                                        className="px-4 h-10 min-w-[102px] rounded-xl bg-red-500/10 border border-red-500/25 text-red-600 dark:text-red-400 text-xs font-black uppercase tracking-wide disabled:opacity-60 inline-flex items-center justify-center gap-1.5"
+                                    >
+                                        <Trash2 size={14} />
+                                        {isRemoveLoading ? 'Removing...' : 'Remove'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 interface DonorPageProps {
     listings: FoodListing[];
     currentUserEmail: string;
+    currentUserId: string;
     onDonate: (data: {
         foodName: string;
         description: string;
@@ -148,10 +267,11 @@ interface DonorPageProps {
         imageFile: File;
         imagePreviewUrl: string | null;
     }) => Promise<QualityCheckResult | null>;
+    onRemoveDonation: (listingId: string) => Promise<{ success: boolean; error?: string }>;
     onRefresh?: () => Promise<void>;
 }
 
-const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDonate, onRefresh }) => {
+const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, currentUserId, onDonate, onRemoveDonation, onRefresh }) => {
     const [foodName, setFoodName] = useState('');
     const [description, setDescription] = useState('');
     const [category, setCategory] = useState<FoodCategory>('Prepared');
@@ -171,6 +291,8 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
     const [aiResult, setAiResult] = useState<QualityCheckResult | null>(null);
     const [pickupModalData, setPickupModalData] = useState<{ listing: FoodListing; pickup: PickupCodeResult } | null>(null);
     const [pickupCodeLoadingId, setPickupCodeLoadingId] = useState<string | null>(null);
+    const [removeLoadingId, setRemoveLoadingId] = useState<string | null>(null);
+    const [confirmRemoveListing, setConfirmRemoveListing] = useState<FoodListing | null>(null);
     const [formError, setFormError] = useState('');
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -178,50 +300,37 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
     const canSubmit = foodName.trim() && selectedLat !== null && selectedLng !== null && hasRequiredPhoto && !isSubmitting;
     const isLocationSelected = selectedLat !== null && selectedLng !== null;
     const locationStatusIcon = getLocationStatusIcon(isSearching, isLocationSelected, location.length);
-    const claimedListings = useMemo(() => {
-        const claimed = listings.filter((listing) => listing.donorEmail === currentUserEmail && listing.status === 'claimed');
+    const postedListings = useMemo(() => {
+        const normalizedUserEmail = currentUserEmail.trim().toLowerCase();
+        const normalizedUserId = currentUserId.trim();
+        const mine = listings.filter((listing) => {
+            const listingDonorEmail = (listing.donorEmail || '').trim().toLowerCase();
+            const listingDonorId = (listing.donorId || '').trim();
+            const isActiveDonation = listing.status === 'available' || listing.status === 'claimed';
+            return (
+                isActiveDonation && (
+                    (normalizedUserId !== '' && listingDonorId !== '' && listingDonorId === normalizedUserId)
+                    || (normalizedUserEmail !== '' && listingDonorEmail !== '' && listingDonorEmail === normalizedUserEmail)
+                )
+            );
+        });
+
         const byId = new Map<string, FoodListing>();
-        for (const listing of claimed) {
+        for (const listing of mine) {
             byId.set(listing.id, listing);
         }
-        return [...byId.values()];
-    }, [listings, currentUserEmail]);
+        return [...byId.values()].sort((a, b) => {
+            const aTs = Date.parse(a.createdAt || a.cookedAt || '');
+            const bTs = Date.parse(b.createdAt || b.cookedAt || '');
+            const safeATs = Number.isFinite(aTs) ? aTs : 0;
+            const safeBTs = Number.isFinite(bTs) ? bTs : 0;
+            return safeBTs - safeATs;
+        });
+    }, [listings, currentUserEmail, currentUserId]);
 
     useEffect(() => {
         void onRefresh?.();
     }, [onRefresh]);
-
-    const renderClaimedSection = () => {
-        if (claimedListings.length === 0) {
-            return null;
-        }
-
-        return (
-            <div className="mt-3 mb-6">
-                <h3 className="text-[11px] font-black text-ios-systemGray uppercase tracking-widest mb-3 px-1">Claimed Donations</h3>
-                <p className="text-[12px] font-semibold text-ios-systemGray px-1 mb-3">Generate QR for receiver pickup verification.</p>
-                <div className="space-y-3">
-                    {claimedListings.map((listing) => (
-                        <div key={listing.id} className="glass-panel rounded-2xl p-4 border border-black/5 dark:border-white/10">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <p className="font-black text-sm">{listing.title}</p>
-                                    <p className="text-xs text-ios-systemGray font-semibold">Claimed by {listing.claimedBy || 'Receiver'}</p>
-                                </div>
-                                <button
-                                    onClick={() => handleGeneratePickupCode(listing)}
-                                    disabled={pickupCodeLoadingId === listing.id}
-                                    className="px-4 h-10 rounded-xl bg-ios-blue text-white text-xs font-black uppercase tracking-wide disabled:opacity-60"
-                                >
-                                    {pickupCodeLoadingId === listing.id ? 'Generating...' : 'Show QR'}
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    };
 
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -311,6 +420,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
         setIsSubmitting(true);
         setIsAiProcessing(true);
         setFormError('');
+        let postedSuccessfully = false;
 
         try {
             const quality = await onDonate({
@@ -325,13 +435,18 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                 imagePreviewUrl,
             });
             setAiResult(quality);
-        } catch {
+            postedSuccessfully = true;
+        } catch (error) {
             setAiResult(null);
+            const message = error instanceof Error ? error.message : 'Could not post donation right now. Please try again.';
+            setFormError(message);
         }
 
         setIsAiProcessing(false);
         setIsSubmitting(false);
-        setIsSubmitted(true);
+        if (postedSuccessfully) {
+            setIsSubmitted(true);
+        }
     };
 
     const handleReset = () => {
@@ -359,21 +474,29 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Could not generate pickup QR right now.';
             await onRefresh?.();
-            if (message.toLowerCase().includes('claimed listings')) {
-                showAppPopup({
-                    title: 'QR unavailable',
-                    message: 'This listing is not claimed on the server yet. Please claim it again from a receiver account.',
-                    tone: 'error',
-                });
-            } else {
-                showAppPopup({
-                    title: 'QR generation failed',
-                    message,
-                    tone: 'error',
-                });
-            }
+            showAppPopup(getPickupQrErrorPopup(message));
         } finally {
             setPickupCodeLoadingId(null);
+        }
+    };
+
+    const handleConfirmRemove = async () => {
+        const listingToRemove = confirmRemoveListing;
+        setRemoveLoadingId(listingToRemove.id);
+
+        try {
+            const result = await onRemoveDonation(listingToRemove.id);
+            showAppPopup({
+                title: result.success ? 'Donation removed' : 'Unable to remove',
+                message: result.success
+                    ? `"${listingToRemove.title}" was removed successfully.`
+                    : (result.error || 'Could not remove this listing right now.'),
+                tone: result.success ? 'success' : 'error',
+            });
+            result.success && setConfirmRemoveListing(null);
+            await (result.success ? (onRefresh?.() ?? Promise.resolve()) : Promise.resolve());
+        } finally {
+            setRemoveLoadingId(null);
         }
     };
 
@@ -382,7 +505,7 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center justify-center h-full px-8 text-center"
+                className="flex flex-col items-center h-full overflow-y-auto no-scrollbar px-6 pt-8 pb-24 text-center"
             >
                 <motion.div
                     initial={{ scale: 0 }}
@@ -400,7 +523,15 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                     They'll get a notification instantly. Thank you for making a difference! 🙏
                 </p>
 
-                {renderClaimedSection()}
+                <PostedListingsPanel
+                    postedListings={postedListings}
+                    pickupCodeLoadingId={pickupCodeLoadingId}
+                    removeLoadingId={removeLoadingId}
+                    onGeneratePickupCode={(listing) => {
+                        void handleGeneratePickupCode(listing);
+                    }}
+                    onRequestRemove={(listing) => setConfirmRemoveListing(listing)}
+                />
 
                 {aiResult && (
                     <div className={`w-full max-w-sm rounded-2xl border px-4 py-3 mb-8 text-left ${
@@ -433,6 +564,57 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                         onClose={() => setPickupModalData(null)}
                     />
                 )}
+
+                {confirmRemoveListing && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[1300] flex items-center justify-center px-5"
+                        onClick={() => !removeLoadingId && setConfirmRemoveListing(null)}
+                    >
+                        <div className="absolute inset-0 bg-black/55" />
+                        <motion.div
+                            initial={{ scale: 0.96, y: 14, opacity: 0 }}
+                            animate={{ scale: 1, y: 0, opacity: 1 }}
+                            exit={{ scale: 0.96, y: 14, opacity: 0 }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+                            className="relative w-full max-w-sm rounded-3xl bg-white dark:bg-ios-darkCard p-5 shadow-2xl text-left"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <div className="inline-flex rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-wider bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20">
+                                Confirm Removal
+                            </div>
+                            <p className="mt-3 text-[15px] font-semibold leading-relaxed text-black dark:text-white">
+                                Remove "{confirmRemoveListing.title}" from your posted donations?
+                            </p>
+                            <p className="mt-1 text-xs text-ios-systemGray font-semibold">
+                                This action cannot be undone.
+                            </p>
+
+                            <div className="mt-5 grid grid-cols-2 gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setConfirmRemoveListing(null)}
+                                    disabled={removeLoadingId === confirmRemoveListing.id}
+                                    className="h-11 rounded-2xl text-sm font-black text-ios-systemGray bg-ios-systemGray/10 disabled:opacity-60"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        void handleConfirmRemove();
+                                    }}
+                                    disabled={removeLoadingId === confirmRemoveListing.id}
+                                    className="h-11 rounded-2xl text-sm font-black text-white bg-red-500 hover:bg-red-600 disabled:opacity-60"
+                                >
+                                    {removeLoadingId === confirmRemoveListing.id ? 'Removing...' : 'Remove'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
             </motion.div>
         );
     }
@@ -446,7 +628,15 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                     <p className="text-ios-systemGray font-semibold text-sm">List surplus food for someone who needs it</p>
                 </div>
 
-                {renderClaimedSection()}
+                <PostedListingsPanel
+                    postedListings={postedListings}
+                    pickupCodeLoadingId={pickupCodeLoadingId}
+                    removeLoadingId={removeLoadingId}
+                    onGeneratePickupCode={(listing) => {
+                        void handleGeneratePickupCode(listing);
+                    }}
+                    onRequestRemove={(listing) => setConfirmRemoveListing(listing)}
+                />
 
                 <div className="space-y-7">
                     {/* Food Name */}
@@ -692,6 +882,57 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, onDon
                     pickupData={pickupModalData.pickup}
                     onClose={() => setPickupModalData(null)}
                 />
+            )}
+
+            {confirmRemoveListing && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[1300] flex items-center justify-center px-5"
+                    onClick={() => !removeLoadingId && setConfirmRemoveListing(null)}
+                >
+                    <div className="absolute inset-0 bg-black/55" />
+                    <motion.div
+                        initial={{ scale: 0.96, y: 14, opacity: 0 }}
+                        animate={{ scale: 1, y: 0, opacity: 1 }}
+                        exit={{ scale: 0.96, y: 14, opacity: 0 }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+                        className="relative w-full max-w-sm rounded-3xl bg-white dark:bg-ios-darkCard p-5 shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="inline-flex rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-wider bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20">
+                            Confirm Removal
+                        </div>
+                        <p className="mt-3 text-[15px] font-semibold leading-relaxed text-black dark:text-white">
+                            Remove "{confirmRemoveListing.title}" from your posted donations?
+                        </p>
+                        <p className="mt-1 text-xs text-ios-systemGray font-semibold">
+                            This action cannot be undone.
+                        </p>
+
+                        <div className="mt-5 grid grid-cols-2 gap-2.5">
+                            <button
+                                type="button"
+                                onClick={() => setConfirmRemoveListing(null)}
+                                disabled={removeLoadingId === confirmRemoveListing.id}
+                                className="h-11 rounded-2xl text-sm font-black text-ios-systemGray bg-ios-systemGray/10 disabled:opacity-60"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    void handleConfirmRemove();
+                                }}
+                                disabled={removeLoadingId === confirmRemoveListing.id}
+                                className="h-11 rounded-2xl text-sm font-black text-white bg-red-500 hover:bg-red-600 disabled:opacity-60"
+                            >
+                                {removeLoadingId === confirmRemoveListing.id ? 'Removing...' : 'Remove'}
+                            </button>
+                        </div>
+                    </motion.div>
+                </motion.div>
             )}
         </div>
     );

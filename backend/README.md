@@ -35,6 +35,15 @@ python init_supabase.py
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+Optional Gemini integration for Quality Snap:
+
+```powershell
+set GEMINI_API_KEY=your-gemini-api-key
+set GEMINI_MODEL=gemini-2.5-flash
+```
+
+When `GEMINI_API_KEY` is set, Gemini becomes the primary quality analyzer for uploads.
+
 API docs:
 
 - http://localhost:8000/docs

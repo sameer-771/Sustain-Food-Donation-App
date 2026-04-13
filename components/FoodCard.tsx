@@ -46,9 +46,16 @@ const freshnessColor = (freshness: string) => {
 const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, currentUserEmail, isClaimLoading, index }) => {
     const [timeSince, setTimeSince] = useState(getTimeSinceCooked(listing.cookedAt));
     const [remaining, setRemaining] = useState(getTimeRemaining(listing.expiresAt));
+    const [avatarFailed, setAvatarFailed] = useState(false);
     const colors = freshnessColor(listing.freshness);
     const isAvailable = listing.status === 'available';
-    const isClaimedByMe = listing.status === 'claimed' && listing.claimedBy === currentUserEmail;
+    const normalizedCurrentUserEmail = (currentUserEmail || '').trim().toLowerCase();
+    const normalizedClaimedBy = (listing.claimedBy || '').trim().toLowerCase();
+    const isClaimedByMe = listing.status === 'claimed' && normalizedClaimedBy === normalizedCurrentUserEmail;
+    const servingsText = listing.servings === 1 ? '1 serving' : `${listing.servings} servings`;
+    const donorRating = typeof listing.donor.rating === 'number' && Number.isFinite(listing.donor.rating)
+        ? listing.donor.rating.toFixed(1)
+        : '--';
 
     // Update timers every 30 seconds
     useEffect(() => {
@@ -58,6 +65,10 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, cur
         }, 30000);
         return () => clearInterval(interval);
     }, [listing.cookedAt, listing.expiresAt]);
+
+    useEffect(() => {
+        setAvatarFailed(false);
+    }, [listing.donor.avatar, listing.id]);
 
     return (
         <motion.div
@@ -114,18 +125,29 @@ const FoodCard: React.FC<FoodCardProps> = ({ listing, onClaim, onViewPickup, cur
                                         Verified
                                     </span>
                                 )}
-                                <span className="text-[10px] font-bold text-ios-systemGray uppercase">{listing.servings} srv</span>
+                                <span className="text-[10px] font-bold text-ios-systemGray">{servingsText}</span>
                             </div>
                         </div>
 
                         {/* Donor Info */}
                         <div className="flex items-center gap-1.5 mt-1">
-                            <img src={listing.donor.avatar} alt="" className="w-4 h-4 rounded-full object-cover" />
+                            {listing.donor.avatar && !avatarFailed ? (
+                                <img
+                                    src={listing.donor.avatar}
+                                    alt={`${listing.donor.name} profile`}
+                                    className="w-4 h-4 rounded-full object-cover"
+                                    onError={() => setAvatarFailed(true)}
+                                />
+                            ) : (
+                                <div className="w-4 h-4 rounded-full bg-ios-blue/15 text-ios-blue text-[9px] font-black flex items-center justify-center">
+                                    {(listing.donor.name || 'D').charAt(0).toUpperCase()}
+                                </div>
+                            )}
                             <span className="text-[11px] text-ios-systemGray font-semibold truncate">{listing.donor.name}</span>
                             {listing.donor.verified && <ShieldCheck size={11} className="text-ios-blue shrink-0" />}
                             <div className="flex items-center gap-0.5 ml-auto shrink-0">
                                 <Star size={10} className="text-amber-400 fill-amber-400" />
-                                <span className="text-[10px] font-bold text-ios-systemGray">{listing.donor.rating}</span>
+                                <span className="text-[10px] font-bold text-ios-systemGray">{donorRating}</span>
                             </div>
                         </div>
                     </div>

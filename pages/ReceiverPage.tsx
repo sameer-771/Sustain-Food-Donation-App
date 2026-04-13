@@ -15,6 +15,29 @@ type SortMode = 'nearest' | 'freshest';
 type LocationStatus = 'idle' | 'loading' | 'ready' | 'error';
 const DISTANCE_HYSTERESIS_KM = 0.2;
 
+const matchesListingFilters = (
+  listing: FoodListing,
+  activeCategory: FoodCategory | 'All',
+  searchQuery: string,
+): boolean => {
+  if (activeCategory !== 'All' && listing.category !== activeCategory) {
+    return false;
+  }
+
+  const query = searchQuery.trim().toLowerCase();
+  if (!query) {
+    return true;
+  }
+
+  return (
+    listing.title.toLowerCase().includes(query)
+    || listing.donor.name.toLowerCase().includes(query)
+    || listing.category.toLowerCase().includes(query)
+    || listing.location.address.toLowerCase().includes(query)
+    || listing.dietary.some((diet) => diet.toLowerCase().includes(query))
+  );
+};
+
 interface ReceiverPageProps {
   listings: FoodListing[];
   onClaim: (id: string) => Promise<{ success: boolean; error?: string }>;
@@ -29,7 +52,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
   const [activeCategory, setActiveCategory] = useState<FoodCategory | 'All'>('All');
   const [sortMode, setSortMode] = useState<SortMode>('nearest');
   const [showFilters, setShowFilters] = useState(false);
-  const [maxDistance, setMaxDistance] = useState<number>(10);
+  const [maxDistance, setMaxDistance] = useState<number>(25);
   const [receiverLocation, setReceiverLocation] = useState<Coordinates | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
   const [locationError, setLocationError] = useState('');
@@ -114,28 +137,27 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     });
   }, [listings, receiverLocation]);
 
-  // Strict feed filtering
-  const filtered = useMemo(() => {
-    let result = listingsWithDistance.filter((listing) => {
-      if (listing.status === 'available') return true;
-      if (listing.status === 'claimed' && listing.claimedBy === currentUserEmail) return true;
-      return false;
-    });
+  const normalizedUserEmail = currentUserEmail.trim().toLowerCase();
 
-    if (activeCategory !== 'All') {
-      result = result.filter((listing) => listing.category === activeCategory);
-    }
+  const claimedByMe = useMemo(() => {
+    return listingsWithDistance
+      .filter((listing) => (
+        listing.status === 'claimed'
+        && (listing.claimedBy || '').trim().toLowerCase() === normalizedUserEmail
+        && matchesListingFilters(listing, activeCategory, searchQuery)
+      ))
+      .sort((a, b) => new Date(b.createdAt || b.cookedAt).getTime() - new Date(a.createdAt || a.cookedAt).getTime());
+  }, [listingsWithDistance, normalizedUserEmail, activeCategory, searchQuery]);
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter((listing) =>
-        listing.title.toLowerCase().includes(q)
-        || listing.donor.name.toLowerCase().includes(q)
-        || listing.category.toLowerCase().includes(q)
-        || listing.location.address.toLowerCase().includes(q)
-        || listing.dietary.some((diet) => diet.toLowerCase().includes(q)),
-      );
-    }
+  const availableBase = useMemo(() => {
+    return listingsWithDistance.filter((listing) => (
+      listing.status === 'available'
+      && matchesListingFilters(listing, activeCategory, searchQuery)
+    ));
+  }, [listingsWithDistance, activeCategory, searchQuery]);
+
+  const availableFiltered = useMemo(() => {
+    let result = [...availableBase];
 
     if (receiverLocation) {
       result = result.filter((listing) => listing.location.distanceValue <= (maxDistance + DISTANCE_HYSTERESIS_KM));
@@ -148,7 +170,11 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     }
 
     return result;
-  }, [listingsWithDistance, activeCategory, searchQuery, sortMode, maxDistance, currentUserEmail, receiverLocation]);
+  }, [availableBase, receiverLocation, maxDistance, sortMode]);
+
+  const filtered = useMemo(() => {
+    return [...claimedByMe, ...availableFiltered];
+  }, [claimedByMe, availableFiltered]);
 
   // Claim handler with loading state and debounce
   const handleClaim = useCallback((id: string) => {
@@ -258,7 +284,8 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
   const scannerListing = scannerListingId ? listingsWithDistance.find((listing) => listing.id === scannerListingId) : null;
   const ratingListing = ratingListingId ? listingsWithDistance.find((listing) => listing.id === ratingListingId) : null;
 
-  const availableCount = filtered.filter((listing) => listing.status === 'available').length;
+  const availableCount = availableFiltered.length;
+  const hiddenByDistanceCount = Math.max(0, availableBase.length - availableFiltered.length);
 
   return (
     <div className="absolute inset-0 overflow-y-auto no-scrollbar scroll-smooth">
@@ -426,7 +453,9 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
               </div>
               <h3 className="text-lg font-black mb-1">No food available nearby</h3>
               <p className="text-ios-systemGray text-sm font-medium">
-                Try adjusting your filters or expanding the search radius
+                {hiddenByDistanceCount > 0
+                  ? `Try increasing distance. ${hiddenByDistanceCount} listing(s) match but are outside ${maxDistance} km.`
+                  : 'Try adjusting your filters or expanding the search radius'}
               </p>
             </div>
           )}

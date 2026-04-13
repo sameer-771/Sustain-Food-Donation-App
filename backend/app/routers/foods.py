@@ -14,6 +14,7 @@ from ..schemas.food import (
 )
 from ..services.food_service import (
     create_food,
+    delete_food,
     expire_check,
     generate_pickup_code,
     list_foods,
@@ -56,6 +57,20 @@ def update_food(
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> dict[str, Any]:
     return patch_food(food_id, payload, user.id, user.email)
+
+
+@router.delete(
+    "/{food_id}",
+    responses={
+        403: {"description": "Only the donor can delete this listing"},
+        404: {"description": "Listing not found"},
+    },
+)
+def remove_food(
+    food_id: str,
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> dict[str, Any]:
+    return delete_food(food_id, user.id)
 
 
 @router.post("/expire-check")

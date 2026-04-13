@@ -79,6 +79,7 @@ def _row_to_food(row: dict[str, Any]) -> dict[str, Any]:
         "claimed": bool(row.get("claimed")),
         "claimedBy": row.get("claimed_by"),
         "donorEmail": row.get("donor_email"),
+        "donorId": row.get("donor_id"),
     }
 
 
@@ -286,6 +287,24 @@ def patch_food(food_id: str, payload: FoodPatch, actor_user_id: str, actor_email
     return _row_to_food(rows[0])
 
 
+def delete_food(food_id: str, actor_user_id: str) -> dict[str, Any]:
+    existing = _read_food_row(food_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=LISTING_NOT_FOUND_DETAIL)
+
+    _assert_owner(existing, actor_user_id)
+
+    (
+        get_supabase_client(use_service_role=True)
+        .table("donations")
+        .delete()
+        .eq("id", food_id)
+        .execute()
+    )
+
+    return {"deleted": True, "id": food_id}
+
+
 def expire_check() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     changed_ids: list[str] = []
@@ -346,7 +365,7 @@ def verify_food_quality(food_id: str, image_bytes: bytes, actor_user_id: str) ->
 
     freshness = str(quality_result["freshness"])
     confidence = float(quality_result["confidence"])
-    is_verified = freshness.lower() == "fresh"
+    is_verified = freshness.lower() != "spoiled"
 
     updated_rows = (
         get_supabase_client(use_service_role=True)
@@ -387,7 +406,7 @@ def preview_food_quality(image_bytes: bytes) -> dict[str, Any]:
 
     freshness = str(quality_result["freshness"])
     confidence = float(quality_result["confidence"])
-    is_verified = freshness.lower() == "fresh"
+    is_verified = freshness.lower() != "spoiled"
 
     return {
         "quality": {

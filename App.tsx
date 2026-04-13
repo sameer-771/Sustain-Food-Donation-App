@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ViewType, UserRole, FoodListing, AppNotification, QualityCheckResult } from './types';
 import DonorPage from './pages/DonorPage';
@@ -20,7 +20,8 @@ import {
   saveNotifications,
   getNotifications, addNotification as addNotif, markAllNotificationsRead, markNotificationRead,
   checkAndUpdateExpiry,
-  syncFoodsFromApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi, verifyQualityInApi,
+  syncFoodsFromApi, runExpireCheckInApi, syncNotificationsFromApi, createFoodInApi, updateFoodInApi, verifyQualityInApi, verifyQualityPreviewInApi,
+  deleteFoodInApi,
   createNotificationInApi, markNotificationReadInApi, markAllNotificationsReadInApi,
 } from './utils/storage';
 
@@ -28,13 +29,50 @@ const EXPIRY_DURATION = 5 * 60 * 60 * 1000; // 5 hours in ms
 const LOCAL_LISTING_GRACE_MS = 10 * 60 * 1000;
 
 type ClaimResult = { success: true } | { success: false; error: string };
+type RemoveDonationResult = { success: true } | { success: false; error: string };
+
+const parseServingsSelection = (selection: string): number => {
+  const value = selection.trim();
+  const rangeMatch = /^(\d+)\s*-\s*(\d+)$/.exec(value);
+  if (rangeMatch) {
+    const min = Number.parseInt(rangeMatch[1], 10);
+    const max = Number.parseInt(rangeMatch[2], 10);
+    if (Number.isFinite(min) && Number.isFinite(max) && min > 0 && max >= min) {
+      return Math.round((min + max) / 2);
+    }
+  }
+
+  const plusMatch = /^(\d+)\+$/.exec(value);
+  if (plusMatch) {
+    const base = Number.parseInt(plusMatch[1], 10);
+    return Number.isFinite(base) && base > 0 ? base : 10;
+  }
+
+  const numeric = Number.parseInt(value, 10);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 4;
+};
+
+const isListingOwnedByUser = (listing: FoodListing, userId: string, userEmail: string): boolean => {
+  const normalizedUserId = userId.trim();
+  const normalizedUserEmail = userEmail.trim().toLowerCase();
+  const normalizedDonorId = (listing.donorId || '').trim();
+  const normalizedDonorEmail = (listing.donorEmail || '').trim().toLowerCase();
+
+  return (
+    (normalizedUserId !== '' && normalizedDonorId !== '' && normalizedDonorId === normalizedUserId)
+    || (normalizedUserEmail !== '' && normalizedDonorEmail !== '' && normalizedDonorEmail === normalizedUserEmail)
+  );
+};
 
 const toTimestamp = (listing: FoodListing): number => {
   const value = Date.parse(listing.createdAt || listing.cookedAt || '');
   return Number.isFinite(value) ? value : 0;
 };
 
-const mergeListingsForUi = (localListings: FoodListing[], backendListings: FoodListing[]): FoodListing[] => {
+const mergeListingsForUi = (
+  localListings: FoodListing[],
+  backendListings: FoodListing[],
+): FoodListing[] => {
   const backendById = new Map(backendListings.map((listing) => [listing.id, listing]));
   const now = Date.now();
   const merged: FoodListing[] = [...backendListings];
@@ -86,6 +124,12 @@ const mergeNotificationsForUi = (localNotifications: AppNotification[], backendN
   }
 
   return [...mergedById.values()].sort((a, b) => notificationTimestamp(b) - notificationTimestamp(a));
+};
+
+const hasExpiredNotificationForListing = (listingId: string): boolean => {
+  return getNotifications().some((notification) => (
+    notification.type === 'expired' && notification.relatedListingId === listingId
+  ));
 };
 
 const FOOD_IMAGES = [
@@ -181,25 +225,42 @@ const App: React.FC = () => {
   const [activePopup, setActivePopup] = useState<AppPopupPayload | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const effectiveUserRole: UserRole = currentUser?.role === 'donor' ? userRole : 'receiver';
+  const expireCheckLastRunRef = useRef<number>(0);
 
   const refreshFromBackend = useCallback(async () => {
+    const now = Date.now();
+    const shouldRunExpireCheck = now - expireCheckLastRunRef.current >= 60_000;
+    if (shouldRunExpireCheck) {
+      expireCheckLastRunRef.current = now;
+    }
+
+    const foodsPromise = shouldRunExpireCheck
+      ? runExpireCheckInApi().catch(() => syncFoodsFromApi())
+      : syncFoodsFromApi();
+
+    const notificationsPromise = syncNotificationsFromApi();
+
     try {
-      const [foods, notifs] = await Promise.all([
-        syncFoodsFromApi(),
-        syncNotificationsFromApi(),
-      ]);
+      const foods = await foodsPromise;
       setListings((prev) => {
         const merged = mergeListingsForUi(prev, foods);
         saveFoods(merged);
         return merged;
       });
+    } catch {
+      // Keep local listings if backend is unreachable.
+    }
+
+    try {
+      const notifs = await notificationsPromise;
       setNotifications((prev) => {
         const merged = mergeNotificationsForUi(prev, notifs);
         saveNotifications(merged);
         return merged;
       });
     } catch {
-      // Keep local state if backend is unreachable.
+      // Keep local notifications if backend is unreachable.
     }
   }, []);
 
@@ -225,9 +286,19 @@ const App: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       void refreshFromBackend();
-    }, 20000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [refreshFromBackend]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    if (activeView === 'home' && effectiveUserRole === 'receiver') {
+      void refreshFromBackend();
+    }
+  }, [activeView, currentUser, effectiveUserRole, refreshFromBackend]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -259,6 +330,13 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+    void refreshFromBackend();
+  }, [currentUser?.id, refreshFromBackend]);
+
   // --- 5-hour expiry: check every 30 seconds ---
   useEffect(() => {
     const interval = setInterval(() => {
@@ -270,18 +348,20 @@ const App: React.FC = () => {
             const createdTime = new Date(l.createdAt || l.cookedAt).getTime();
             if (now - createdTime >= EXPIRY_DURATION) {
               changed = true;
-              const notif = addNotif({
-                type: 'expired',
-                title: 'Listing Expired',
-                message: `"${l.title}" has expired.`,
-                relatedListingId: l.id,
-              });
-              const localNotifications = getNotifications();
-              setNotifications(localNotifications);
-              void createNotificationInApi(notif).catch(() => {
-                // Keep local notification even if backend write fails.
-              });
-              setActiveToast(notif);
+              if (!hasExpiredNotificationForListing(l.id)) {
+                const notif = addNotif({
+                  type: 'expired',
+                  title: 'Listing Expired',
+                  message: `"${l.title}" has expired.`,
+                  relatedListingId: l.id,
+                });
+                const localNotifications = getNotifications();
+                setNotifications(localNotifications);
+                void createNotificationInApi(notif).catch(() => {
+                  // Keep local notification even if backend write fails.
+                });
+                setActiveToast(notif);
+              }
               return { ...l, status: 'expired' as const };
             }
           }
@@ -363,6 +443,45 @@ const App: React.FC = () => {
     const randomImg = FOOD_IMAGES[Math.floor(Math.random() * FOOD_IMAGES.length)];
     const imgUrl = donation.imagePreviewUrl || randomImg;
     const now = new Date();
+    const profilePhoto = currentUser?.id ? localStorage.getItem(`sustain_profile_photo_${currentUser.id}`) : null;
+
+    const donorRatings = listings
+      .filter((item) => isListingOwnedByUser(item, currentUser?.id || '', currentUser?.email || ''))
+      .map((item) => item.donor?.rating)
+      .filter((rating): rating is number => typeof rating === 'number' && Number.isFinite(rating));
+    const donorAverageRating = donorRatings.length
+      ? Number((donorRatings.reduce((sum, rating) => sum + rating, 0) / donorRatings.length).toFixed(2))
+      : 5;
+
+    const qualityGateMessage = 'Only good-quality food can be posted. Please upload fresher food.';
+    const freshnessMap: Record<string, FoodListing['freshness']> = {
+      Fresh: 'excellent',
+      Questionable: 'good',
+      Spoiled: 'fair',
+    };
+
+    let previewQuality: QualityCheckResult;
+    try {
+      const previewResponse = await verifyQualityPreviewInApi(donation.imageFile);
+      previewQuality = {
+        freshness: previewResponse.quality.freshness,
+        confidence: previewResponse.quality.confidence,
+        isVerified: previewResponse.quality.isVerified,
+      };
+
+      if (previewResponse.quality.freshness === 'Spoiled') {
+        throw new Error(qualityGateMessage);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to verify food quality right now.';
+      const normalized = message.toLowerCase();
+
+      if (normalized.includes('only good-quality food can be posted') || normalized.includes('spoiled') || normalized.includes('bad quality')) {
+        throw new Error(qualityGateMessage);
+      }
+
+      throw new Error('Unable to verify food quality right now. Donation was not posted.');
+    }
 
     const newListing: FoodListing = {
       id: `user-${Date.now()}`,
@@ -373,8 +492,8 @@ const App: React.FC = () => {
       thumbnailUrl: imgUrl,
       donor: {
         name: currentUser?.name || 'Anonymous Donor',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100',
-        rating: 5,
+        avatar: profilePhoto || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100',
+        rating: donorAverageRating,
         verified: true,
       },
       location: {
@@ -387,7 +506,7 @@ const App: React.FC = () => {
       cookedAt: now.toISOString(),
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + EXPIRY_DURATION).toISOString(),
-      servings: Number.parseInt(donation.servings, 10) || 4,
+      servings: parseServingsSelection(donation.servings),
       freshness: 'excellent',
       isVerified: false,
       qualityLabel: null,
@@ -399,42 +518,50 @@ const App: React.FC = () => {
       donorId: currentUser?.id,
     };
 
-    setListings((prev) => {
-      const updated = [newListing, ...prev.filter((item) => item.id !== newListing.id)];
-      saveFoods(updated);
-      return updated;
-    });
-
+    let createdWithOwner: FoodListing;
     try {
       const created = await createFoodInApi(newListing);
-      if (created) {
-        setListings((prev) => {
-          const updated = [created, ...prev.filter((item) => item.id !== created.id)];
-          saveFoods(updated);
-          return updated;
-        });
+      if (!created) {
+        throw new Error('Could not create donation. Please try posting again.');
       }
-      void refreshFromBackend();
-    } catch {
-      // Keep local UX responsive even if backend is temporarily unavailable.
+
+      createdWithOwner = {
+        ...created,
+        donorId: created.donorId || currentUser?.id,
+        donorEmail: created.donorEmail || currentUser?.email,
+        qualityLabel: previewQuality.freshness,
+        qualityConfidence: previewQuality.confidence,
+        isVerified: previewQuality.isVerified,
+        freshness: freshnessMap[previewQuality.freshness] ?? created.freshness,
+      };
+
+      setListings((prev) => {
+        const updated = [createdWithOwner, ...prev.filter((item) => item.id !== createdWithOwner.id)];
+        saveFoods(updated);
+        return updated;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to post donation right now. Please try again.';
+      throw new Error(message);
     }
 
-    let qualityResult: QualityCheckResult | null = null;
+    void refreshFromBackend();
+
+    let qualityResult: QualityCheckResult | null = previewQuality;
     try {
-      const response = await verifyQualityInApi(newListing.id, donation.imageFile);
+      const response = await verifyQualityInApi(createdWithOwner.id, donation.imageFile);
       qualityResult = {
         freshness: response.quality.freshness,
         confidence: response.quality.confidence,
         isVerified: response.quality.isVerified,
       };
 
+      if (response.quality.freshness === 'Spoiled') {
+        throw new Error(qualityGateMessage);
+      }
+
       setListings(prev => {
-        const freshnessMap: Record<string, FoodListing['freshness']> = {
-          Fresh: 'excellent',
-          Questionable: 'good',
-          Spoiled: 'fair',
-        };
-        const updated = prev.map(item => item.id === newListing.id ? {
+        const updated = prev.map(item => item.id === createdWithOwner.id ? {
           ...item,
           isVerified: qualityResult?.isVerified ?? false,
           qualityLabel: qualityResult?.freshness ?? null,
@@ -444,18 +571,77 @@ const App: React.FC = () => {
         saveFoods(updated);
         return updated;
       });
-    } catch {
-      // Listing stays unverified if AI service fails.
+    } catch (error) {
+      await deleteFoodInApi(createdWithOwner.id).catch(() => {
+        // Best effort rollback.
+      });
+
+      setListings((prev) => {
+        const updated = prev.filter((item) => item.id !== createdWithOwner.id);
+        saveFoods(updated);
+        return updated;
+      });
+
+      void refreshFromBackend();
+
+      const message = error instanceof Error ? error.message : 'Unable to verify food quality right now.';
+      if (message.toLowerCase().includes('only good-quality food can be posted')) {
+        throw new Error(qualityGateMessage);
+      }
+      throw new Error('Unable to verify food quality right now. Donation was not posted.');
     }
 
     pushNotification({
       type: 'donation_posted',
       title: 'Donation Posted! 🎉',
       message: `"${donation.foodName}" is now live. Receivers nearby will be notified.`,
-      relatedListingId: newListing.id,
+      relatedListingId: createdWithOwner.id,
     });
     return qualityResult;
-  }, [pushNotification, currentUser, refreshFromBackend]);
+  }, [pushNotification, currentUser, listings, refreshFromBackend]);
+
+  const handleRemoveDonation = useCallback(async (id: string): Promise<RemoveDonationResult> => {
+    const listing = listings.find((item) => item.id === id);
+    if (!listing) {
+      return { success: false, error: 'Listing not found.' };
+    }
+
+    const actorId = (currentUser?.id || '').trim();
+    const actorEmail = (currentUser?.email || '').trim().toLowerCase();
+    const donorId = (listing.donorId || '').trim();
+    const donorEmail = (listing.donorEmail || '').trim().toLowerCase();
+    const actorIsOwner = (actorId && donorId && actorId === donorId) || (actorEmail && donorEmail && actorEmail === donorEmail);
+
+    if (!actorIsOwner) {
+      return { success: false, error: 'You can remove only the donations you posted.' };
+    }
+
+    try {
+      await deleteFoodInApi(id);
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Unable to remove this listing right now.';
+      const normalized = rawMessage.toLowerCase();
+
+      if (normalized.includes('listing not found')) {
+        // Continue to local cleanup to remove stale entries.
+      } else if (normalized.includes('only the donor can perform this action')) {
+        return { success: false, error: 'You can remove only the donations you posted.' };
+      } else if (normalized.includes('missing authorization') || normalized.includes('unauthorized') || normalized.includes('401')) {
+        return { success: false, error: 'Session expired. Please sign in again.' };
+      } else {
+        return { success: false, error: rawMessage || 'Unable to remove this listing right now.' };
+      }
+    }
+
+    setListings((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      saveFoods(updated);
+      return updated;
+    });
+
+    void refreshFromBackend();
+    return { success: true };
+  }, [currentUser, listings, refreshFromBackend]);
 
   // --- Receiver claims (race-condition safe) ---
   const handleClaimListing = useCallback(async (id: string): Promise<ClaimResult> => {
@@ -549,7 +735,6 @@ const App: React.FC = () => {
     }
   }, [listings, pushNotification, refreshFromBackend]);
 
-  const effectiveUserRole: UserRole = currentUser?.role === 'donor' ? userRole : 'receiver';
   const showRoleToggle = activeView === 'home' && currentUser?.role === 'donor';
 
   // --- Loading ---
@@ -630,7 +815,9 @@ const App: React.FC = () => {
               <DonorPage
                 listings={listings}
                 currentUserEmail={currentUser?.email || ''}
+                currentUserId={currentUser?.id || ''}
                 onDonate={handleNewDonation}
+                onRemoveDonation={handleRemoveDonation}
                 onRefresh={refreshFromBackend}
               />
             )}

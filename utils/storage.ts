@@ -232,6 +232,21 @@ export const syncFoodsFromApi = async (options?: {
   return foods;
 };
 
+export const runExpireCheckInApi = async (): Promise<FoodListing[]> => {
+  const res = await fetch(`${API_BASE_URL}/api/foods/expire-check`, {
+    method: 'POST',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to run expiry check: ${res.status}`);
+  }
+
+  const payload = await res.json() as { foods?: FoodListing[] };
+  const foods = Array.isArray(payload.foods) ? payload.foods : [];
+  saveFoods(foods);
+  return foods;
+};
+
 export const syncNotificationsFromApi = async (): Promise<AppNotification[]> => {
   const res = await fetch(`${API_BASE_URL}/api/notifications`);
   if (!res.ok) {
@@ -332,8 +347,18 @@ export const createFoodInApi = async (food: FoodListing): Promise<FoodListing | 
   }
 
   if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(errorText || `Failed to create food: ${res.status}`);
+    const rawBody = await res.text();
+    let detail = rawBody;
+    try {
+      const parsed = JSON.parse(rawBody) as { detail?: string };
+      if (parsed?.detail) {
+        detail = parsed.detail;
+      }
+    } catch {
+      // Keep plain response body as detail.
+    }
+
+    throw new Error(detail || `Failed to create food: ${res.status}`);
   }
 
   const created = await res.json() as FoodListing;
@@ -355,6 +380,60 @@ export const updateFoodInApi = async (id: string, updates: Partial<FoodListing>)
 
   const updated = await res.json() as FoodListing;
   return updated;
+};
+
+export const deleteFoodInApi = async (id: string): Promise<void> => {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE_URL}/api/foods/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers,
+  });
+
+  if (res.ok) {
+    return;
+  }
+
+  if (res.status === 405) {
+    const patchHeaders = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const softDeleteResponse = await fetch(`${API_BASE_URL}/api/foods/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: patchHeaders,
+      body: JSON.stringify({
+        status: 'expired',
+        claimed: false,
+      }),
+    });
+
+    if (softDeleteResponse.ok) {
+      return;
+    }
+
+    const softDeleteRaw = await softDeleteResponse.text();
+    let softDeleteDetail = softDeleteRaw;
+    try {
+      const parsed = JSON.parse(softDeleteRaw) as { detail?: string };
+      if (parsed?.detail) {
+        softDeleteDetail = parsed.detail;
+      }
+    } catch {
+      // Keep plain response body as detail.
+    }
+
+    throw new Error(softDeleteDetail || `Failed to remove food: ${softDeleteResponse.status}`);
+  }
+
+  const rawBody = await res.text();
+  let detail = rawBody;
+  try {
+    const parsed = JSON.parse(rawBody) as { detail?: string };
+    if (parsed?.detail) {
+      detail = parsed.detail;
+    }
+  } catch {
+    // Keep plain response body as detail.
+  }
+
+  throw new Error(detail || `Failed to remove food: ${res.status}`);
 };
 
 export const verifyQualityInApi = async (foodId: string, imageFile: File): Promise<VerifyQualityApiResponse> => {
