@@ -3,6 +3,22 @@ import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { AppUser, UserRole } from '../../types';
 import { supabase } from '../utils/supabaseClient';
 
+const API_BASE_URL = (() => {
+  const runtimeWindow = globalThis.window;
+  if (runtimeWindow === undefined) {
+    return 'http://127.0.0.1:8000';
+  }
+
+  const fromEnv = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL;
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const protocol = runtimeWindow.location.protocol;
+  const host = runtimeWindow.location.hostname || '127.0.0.1';
+  return `${protocol}//${host}:8000`;
+})();
+
 interface AuthContextValue {
   user: AppUser | null;
   session: Session | null;
@@ -15,6 +31,49 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const mapRole = (value: unknown): UserRole => (value === 'donor' ? 'donor' : 'receiver');
+
+const toFriendlyAuthError = (raw: string | undefined, fallback: string): string => {
+  const message = (raw || '').toLowerCase();
+
+  if (!message) {
+    return fallback;
+  }
+  if (message.includes('already') || message.includes('exists') || message.includes('registered') || message.includes('security purposes')) {
+    return 'Account already exists. Please sign in instead.';
+  }
+  if (message.includes('invalid login credentials') || message.includes('invalid email or password')) {
+    return 'Invalid email or password.';
+  }
+  if (message.includes('email not confirmed')) {
+    return 'Email confirmation is required for this account.';
+  }
+  if (message.includes('row-level security') || message.includes('permission denied')) {
+    return 'Could not complete signup automatically. Please try again.';
+  }
+
+  return raw || fallback;
+};
+
+async function postJson<T>(path: string, payload: unknown): Promise<{ data?: T; error?: string; status: number }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return { status: response.status, error: (body as { detail?: string }).detail || `Request failed (${response.status})` };
+    }
+
+    return { status: response.status, data: body as T };
+  } catch {
+    return { status: 0, error: 'Backend is not reachable. Please ensure API server is running.' };
+  }
+}
 
 const fetchProfile = async (userId: string, email: string | undefined): Promise<AppUser | null> => {
   const { data, error } = await supabase
@@ -79,12 +138,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.user) {
-      return { success: false, error: error?.message || 'Invalid email or password' };
+      return { success: false, error: toFriendlyAuthError(error?.message, 'Invalid email or password') };
     }
 
-    const profile = await fetchProfile(data.user.id, data.user.email);
+    let profile = await fetchProfile(data.user.id, data.user.email);
     if (!profile) {
-      return { success: false, error: 'Profile not found for this account.' };
+      await postJson('/api/auth/login', { email, password });
+      profile = await fetchProfile(data.user.id, data.user.email);
+    }
+
+    if (!profile) {
+      return { success: false, error: 'Account profile is missing. Please retry once.' };
     }
 
     setUser(profile);
@@ -97,50 +161,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     role: UserRole,
   ): Promise<{ success: boolean; error?: string }> => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          username: name,
-          role,
-        },
-      },
-    });
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    const authUser = data.user;
-    if (!authUser) {
-      return {
-        success: false,
-        error: 'Signup completed, but user session is pending verification. Please check your email settings.',
-      };
-    }
-
-    const profileUpsert = await supabase
-      .from('profiles')
-      .upsert({
-        id: authUser.id,
-        username: name,
-        email,
-        role,
-      });
-
-    if (profileUpsert.error) {
-      return { success: false, error: profileUpsert.error.message };
-    }
-
-    setUser({
-      id: authUser.id,
+    const registerResult = await postJson<{ id: string; name: string; email: string; role: UserRole }>('/api/auth/register', {
       name,
       email,
+      password,
       role,
     });
 
-    return { success: true };
+    if (registerResult.error) {
+      const lowered = registerResult.error.toLowerCase();
+      if (lowered.includes('already')) {
+        return signIn(email, password);
+      }
+      return { success: false, error: toFriendlyAuthError(registerResult.error, 'Signup failed') };
+    }
+
+    return signIn(email, password);
   };
 
   const signOut = async (): Promise<void> => {
