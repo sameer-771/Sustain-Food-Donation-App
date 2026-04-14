@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import os
 from io import BytesIO
 from typing import Any
@@ -18,6 +19,9 @@ _model: Any | None = None
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_FALLBACK_MODELS = (DEFAULT_GEMINI_MODEL, "gemini-2.0-flash")
+
+logger = logging.getLogger(__name__)
 
 SPOILAGE_KEYWORDS = {
     "stinkhorn",
@@ -170,13 +174,164 @@ def _detect_image_mime_type(image_bytes: bytes) -> str:
     return "image/jpeg"
 
 
+def _gemini_models_to_try() -> list[str]:
+    configured_model = os.getenv(GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+    models_to_try = [configured_model]
+    for fallback_model in GEMINI_FALLBACK_MODELS:
+        if fallback_model not in models_to_try:
+            models_to_try.append(fallback_model)
+    return models_to_try
+
+
+def _build_gemini_request_shapes(
+    instruction: str,
+    mime_type: str,
+    encoded_image: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    parts = [
+        {"text": instruction},
+        {
+            "inline_data": {
+                "mime_type": mime_type,
+                "data": encoded_image,
+            }
+        },
+    ]
+    contents = [{"role": "user", "parts": parts}]
+
+    strict_payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 256,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+
+    compatible_payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 256,
+        },
+    }
+
+    return strict_payload, compatible_payload
+
+
+def _request_gemini_response(
+    endpoint: str,
+    api_key: str,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        response = requests.post(endpoint, params={"key": api_key}, json=payload, timeout=12)
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _extract_gemini_text_part(data: dict[str, Any]) -> str | None:
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+
+    content = candidates[0].get("content", {})
+    parts = content.get("parts", []) if isinstance(content, dict) else []
+    for part in parts:
+        if isinstance(part, dict) and isinstance(part.get("text"), str):
+            return part["text"]
+    return None
+
+
+def _label_from_gemini_text(text_part: str, parsed: dict[str, Any]) -> str | None:
+    label = _normalize_quality_label(str(parsed.get("freshness", "")))
+    if label:
+        return label
+
+    reason = str(parsed.get("reason", "")).strip().lower()
+    if any(token in reason for token in {"non-food", "not food", "not a photograph of food", "diagram", "garbage", "trash", "rotten", "mold"}):
+        return FRESHNESS_SPOILED
+    if any(token in reason for token in {"unclear", "blurry", "cannot determine", "not sure"}):
+        return FRESHNESS_QUESTIONABLE
+
+    raw_lower = text_part.lower()
+    if any(token in raw_lower for token in {"spoiled", "rotten", "bad quality", "garbage", "trash", "non-food", "not applicable"}):
+        return FRESHNESS_SPOILED
+    if "questionable" in raw_lower or "uncertain" in raw_lower:
+        return FRESHNESS_QUESTIONABLE
+    if "fresh" in raw_lower or "good quality" in raw_lower:
+        return FRESHNESS_FRESH
+    return None
+
+
+def _default_confidence_for_label(label: str) -> float:
+    if label == FRESHNESS_FRESH:
+        return 0.78
+    if label == FRESHNESS_SPOILED:
+        return 0.82
+    return 0.62
+
+
+def _confidence_from_gemini(parsed: dict[str, Any], label: str) -> float:
+    confidence_raw = parsed.get("confidence")
+    try:
+        confidence = float(confidence_raw)
+    except Exception:
+        confidence = 0.7 if label == FRESHNESS_FRESH else 0.75
+
+    if not np.isfinite(confidence) or confidence <= 0:
+        confidence = _default_confidence_for_label(label)
+
+    return round(_clamp(confidence), 4)
+
+
+def _try_gemini_model(
+    model: str,
+    api_key: str,
+    request_shapes: tuple[dict[str, Any], dict[str, Any]],
+) -> dict[str, str | float] | None:
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+    for payload in request_shapes:
+        data = _request_gemini_response(endpoint, api_key, payload)
+        if not data:
+            continue
+
+        text_part = _extract_gemini_text_part(data)
+        if not text_part:
+            continue
+
+        parsed = _extract_json_object(text_part)
+        if not parsed:
+            continue
+
+        label = _label_from_gemini_text(text_part, parsed)
+        if not label:
+            continue
+
+        confidence = _confidence_from_gemini(parsed, label)
+        return {
+            "freshness": label,
+            "confidence": confidence,
+            "topPrediction": f"gemini:{model}",
+        }
+
+    return None
+
+
 def _analyze_with_gemini(image_bytes: bytes) -> dict[str, str | float] | None:
     api_key = os.getenv(GEMINI_API_KEY_ENV, "").strip()
     if not api_key:
         return None
 
-    model = os.getenv(GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    models_to_try = _gemini_models_to_try()
     encoded_image = base64.b64encode(image_bytes).decode("ascii")
     mime_type = _detect_image_mime_type(image_bytes)
 
@@ -187,88 +342,15 @@ def _analyze_with_gemini(image_bytes: bytes) -> dict[str, str | float] | None:
         "Otherwise return Fresh. Use Questionable only when the image is too unclear to judge. "
         "Respond with JSON only: {\"freshness\":\"Fresh|Questionable|Spoiled\",\"confidence\":0.0}"
     )
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": instruction},
-                    {
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": encoded_image,
-                        }
-                    },
-                ],
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 256,
-            "responseMimeType": "application/json",
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
-    }
+    request_shapes = _build_gemini_request_shapes(instruction, mime_type, encoded_image)
 
-    try:
-        response = requests.post(endpoint, params={"key": api_key}, json=payload, timeout=12)
-        response.raise_for_status()
-        data = response.json()
-    except Exception:
-        return None
+    for model in models_to_try:
+        result = _try_gemini_model(model, api_key, request_shapes)
+        if result:
+            return result
 
-    candidates = data.get("candidates") if isinstance(data, dict) else None
-    if not isinstance(candidates, list) or not candidates:
-        return None
-
-    content = candidates[0].get("content", {})
-    parts = content.get("parts", []) if isinstance(content, dict) else []
-    text_part = ""
-    for part in parts:
-        if isinstance(part, dict) and isinstance(part.get("text"), str):
-            text_part = part["text"]
-            break
-
-    if not text_part:
-        return None
-
-    parsed = _extract_json_object(text_part)
-    if not parsed:
-        return None
-
-    label = _normalize_quality_label(str(parsed.get("freshness", "")))
-    if not label:
-        reason = str(parsed.get("reason", "")).strip().lower()
-        if any(token in reason for token in {"non-food", "not food", "not a photograph of food", "diagram", "garbage", "trash", "rotten", "mold"}):
-            label = FRESHNESS_SPOILED
-        elif any(token in reason for token in {"unclear", "blurry", "cannot determine", "not sure"}):
-            label = FRESHNESS_QUESTIONABLE
-    if not label:
-        raw_lower = text_part.lower()
-        if any(token in raw_lower for token in {"spoiled", "rotten", "bad quality", "garbage", "trash", "non-food", "not applicable"}):
-            label = FRESHNESS_SPOILED
-        elif "questionable" in raw_lower or "uncertain" in raw_lower:
-            label = FRESHNESS_QUESTIONABLE
-        elif "fresh" in raw_lower or "good quality" in raw_lower:
-            label = FRESHNESS_FRESH
-
-    if not label:
-        return None
-
-    confidence_raw = parsed.get("confidence")
-    try:
-        confidence = float(confidence_raw)
-    except Exception:
-        confidence = 0.7 if label == FRESHNESS_FRESH else 0.75
-
-    if not np.isfinite(confidence) or confidence <= 0:
-        confidence = 0.78 if label == FRESHNESS_FRESH else (0.82 if label == FRESHNESS_SPOILED else 0.62)
-
-    return {
-        "freshness": label,
-        "confidence": round(_clamp(confidence), 4),
-        "topPrediction": f"gemini:{model}",
-    }
+    logger.warning("Gemini quality analysis failed for all configured attempts; falling back to local analysis")
+    return None
 
 
 def _prediction_signals(predictions: list[tuple[str, str, float]]) -> dict[str, float]:
@@ -455,13 +537,13 @@ def analyze_food_freshness(image_bytes: bytes) -> dict[str, str | float]:
 
     if _is_gemini_enabled():
         gemini_result = _analyze_with_gemini(image_bytes)
-        if not gemini_result:
-            raise RuntimeError("Gemini quality analysis failed")
-        return {
-            "freshness": str(gemini_result["freshness"]),
-            "confidence": round(float(gemini_result["confidence"]), 4),
-            "topPrediction": str(gemini_result["topPrediction"]),
-        }
+        if gemini_result:
+            return {
+                "freshness": str(gemini_result["freshness"]),
+                "confidence": round(float(gemini_result["confidence"]), 4),
+                "topPrediction": str(gemini_result["topPrediction"]),
+            }
+        # Gemini can fail due quota/network/model constraints; local analysis keeps posting usable.
 
     heuristic_signals = _heuristic_signals(image)
 

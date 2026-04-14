@@ -10,12 +10,26 @@ export interface LocationSuggestion {
   place_id: number;
 }
 
+export const CHENNAI_CENTER: Coordinates = {
+  lat: 13.0827,
+  lng: 80.2707,
+};
+
 const CHENNAI_BOUNDS = {
   minLat: 12.85,
   maxLat: 13.25,
   minLng: 80.1,
   maxLng: 80.36,
 };
+
+export const isWithinChennaiBounds = (coords: Coordinates): boolean => (
+  Number.isFinite(coords.lat)
+  && Number.isFinite(coords.lng)
+  && coords.lat >= CHENNAI_BOUNDS.minLat
+  && coords.lat <= CHENNAI_BOUNDS.maxLat
+  && coords.lng >= CHENNAI_BOUNDS.minLng
+  && coords.lng <= CHENNAI_BOUNDS.maxLng
+);
 
 const CHENNAI_VIEWBOX = `${CHENNAI_BOUNDS.minLng},${CHENNAI_BOUNDS.maxLat},${CHENNAI_BOUNDS.maxLng},${CHENNAI_BOUNDS.minLat}`;
 

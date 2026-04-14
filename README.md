@@ -133,6 +133,29 @@ Main tables created:
 - Python 3.11 or 3.12
 - A Supabase project with keys
 
+### Quick Start (Windows, easiest)
+
+From project root:
+
+```powershell
+npm run check:gemini
+npm run dev:all
+```
+
+What this does:
+- `check:gemini` validates your `GEMINI_API_KEY` and `GEMINI_MODEL` from `backend/.env`
+- `dev:all` opens 2 terminals and starts backend + frontend automatically
+
+You can also run each side manually:
+
+```powershell
+npm run dev:backend
+```
+
+```powershell
+npm run dev:frontend
+```
+
 ### A. Clone and install
 
 ```powershell
@@ -168,14 +191,7 @@ If init fails due network/ports, run backend/supabase_schema.sql manually in Sup
 Run from project root in PowerShell:
 
 ```powershell
-Get-Content "backend/.env" | ForEach-Object {
-	if ($_ -match '^\s*([^#][^=]*)=(.*)$') {
-		$name = $matches[1].Trim()
-		$value = $matches[2].Trim().Trim('"')
-		[System.Environment]::SetEnvironmentVariable($name, $value, 'Process')
-	}
-}
-backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+npm run dev:backend
 ```
 
 ### E. Start frontend
@@ -183,7 +199,7 @@ backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --hos
 In another terminal from project root:
 
 ```powershell
-npm run dev -- --host 0.0.0.0 --port 5173
+npm run dev:frontend
 ```
 
 ### F. Open app

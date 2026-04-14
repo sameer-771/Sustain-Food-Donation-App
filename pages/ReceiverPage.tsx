@@ -8,7 +8,7 @@ import QrScannerModal from '../components/QrScannerModal';
 import RatingModal from '../components/RatingModal';
 import { ApiRequestError, saveRatingToApi, hasRatedInApi, verifyPickupInApi } from '../utils/storage';
 import { showAppPopup } from '../utils/popup';
-import { Coordinates, formatDistanceKm, getCurrentLocation, haversineDistanceKm, watchCurrentLocation } from '../utils/location';
+import { Coordinates, formatDistanceKm, getCurrentLocation, haversineDistanceKm, isWithinChennaiBounds, watchCurrentLocation } from '../utils/location';
 
 const CATEGORIES: (FoodCategory | 'All')[] = ['All', 'Prepared', 'Bakery', 'Produce', 'Dairy', 'Beverages'];
 type SortMode = 'nearest' | 'freshest';
@@ -103,12 +103,19 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     };
   }, []);
 
-  const listingsWithDistance = useMemo(() => {
-    return listings.map((listing) => {
-      if (!receiverLocation) {
-        return listing;
-      }
+  const canApplyDistanceFilter = useMemo(() => {
+    if (!receiverLocation) {
+      return false;
+    }
+    return isWithinChennaiBounds(receiverLocation);
+  }, [receiverLocation]);
 
+  const listingsWithDistance = useMemo(() => {
+    if (!receiverLocation || !canApplyDistanceFilter) {
+      return listings;
+    }
+
+    return listings.map((listing) => {
       const hasValidCoordinates = Number.isFinite(listing.location.lat) && Number.isFinite(listing.location.lng);
       if (!hasValidCoordinates) {
         return {
@@ -135,7 +142,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         },
       };
     });
-  }, [listings, receiverLocation]);
+  }, [canApplyDistanceFilter, listings, receiverLocation]);
 
   const normalizedUserEmail = currentUserEmail.trim().toLowerCase();
 
@@ -159,7 +166,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
   const availableFiltered = useMemo(() => {
     let result = [...availableBase];
 
-    if (receiverLocation) {
+    if (canApplyDistanceFilter) {
       result = result.filter((listing) => listing.location.distanceValue <= (maxDistance + DISTANCE_HYSTERESIS_KM));
     }
 
@@ -170,7 +177,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
     }
 
     return result;
-  }, [availableBase, receiverLocation, maxDistance, sortMode]);
+  }, [availableBase, canApplyDistanceFilter, maxDistance, sortMode]);
 
   const filtered = useMemo(() => {
     return [...claimedByMe, ...availableFiltered];
@@ -293,7 +300,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         <div className="mb-5">
           <h1 className="text-3xl font-black tracking-tight mb-1">Available Nearby</h1>
           <p className="text-ios-systemGray font-semibold text-sm">
-            {availableCount} listings {receiverLocation ? `within ${maxDistance} km` : 'near your area'}
+            {availableCount} listings {canApplyDistanceFilter ? `within ${maxDistance} km` : 'near your area'}
           </p>
         </div>
 
@@ -307,7 +314,8 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
             <p className="text-[11px] font-black uppercase tracking-wider text-ios-systemGray">Your Location</p>
             <p className="text-[12px] font-semibold leading-snug">
               {locationStatus === 'loading' && 'Requesting GPS access...'}
-              {locationStatus === 'ready' && 'Live location enabled. Distances are real-time.'}
+              {locationStatus === 'ready' && canApplyDistanceFilter && 'Live location enabled. Distances are real-time.'}
+              {locationStatus === 'ready' && !canApplyDistanceFilter && 'GPS looks outside Chennai coverage. Showing all Chennai listings.'}
               {locationStatus === 'error' && (locationError || 'Location unavailable. Enable permission for accurate distance.')}
               {locationStatus === 'idle' && 'Location pending...'}
             </p>
@@ -376,7 +384,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
                     step={0.5}
                     value={maxDistance}
                     onChange={(e) => setMaxDistance(Number.parseFloat(e.target.value))}
-                    disabled={!receiverLocation}
+                    disabled={!canApplyDistanceFilter}
                     className="w-full accent-ios-blue h-1 disabled:opacity-40"
                   />
                   <div className="flex justify-between text-[9px] text-ios-systemGray/50 font-bold mt-1">

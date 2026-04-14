@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:frontend": "vite --host 0.0.0.0 --port 5173",
+    "dev:backend": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-backend.ps1",
+    "dev:all": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-all.ps1",
+    "check:gemini": "powershell -ExecutionPolicy Bypass -File ./scripts/check-gemini.ps1",
     "build": "vite build",
     "preview": "vite preview"
   },
