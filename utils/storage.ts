@@ -18,6 +18,7 @@ interface VerifyQualityApiResponse {
     freshness: 'Fresh' | 'Questionable' | 'Spoiled';
     confidence: number;
     isVerified: boolean;
+    topPrediction: string;
   };
 }
 
@@ -26,6 +27,7 @@ interface VerifyQualityPreviewApiResponse {
     freshness: 'Fresh' | 'Questionable' | 'Spoiled';
     confidence: number;
     isVerified: boolean;
+    topPrediction: string;
   };
 }
 

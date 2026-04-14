@@ -1,7 +1,10 @@
 import base64
+import hashlib
 import json
 import logging
 import os
+from pathlib import Path
+import time
 from io import BytesIO
 from typing import Any
 
@@ -20,8 +23,15 @@ GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_FALLBACK_MODELS = (DEFAULT_GEMINI_MODEL, "gemini-2.0-flash")
+GEMINI_HTTP_TIMEOUT_SECONDS = 12
+GEMINI_MAX_RETRIES = 2
+QUALITY_RESULT_CACHE_TTL_SECONDS = 300
+QUALITY_RESULT_CACHE_MAX_ITEMS = 256
 
 logger = logging.getLogger(__name__)
+
+_analysis_cache: dict[str, tuple[float, dict[str, str | float]]] = {}
+_BACKEND_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 SPOILAGE_KEYWORDS = {
     "stinkhorn",
@@ -107,6 +117,75 @@ def _normalize_label(label: str) -> str:
     return label.strip().lower().replace("_", "-")
 
 
+def _read_env_file_value(key: str) -> str | None:
+    try:
+        with _BACKEND_ENV_PATH.open("r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                name, value = line.split("=", 1)
+                if name.strip() != key:
+                    continue
+
+                cleaned = value.strip().strip('"').strip("'")
+                return cleaned or None
+    except OSError:
+        return None
+
+    return None
+
+
+def _get_gemini_api_key() -> str:
+    file_key = _read_env_file_value(GEMINI_API_KEY_ENV)
+    if file_key:
+        return file_key
+    return os.getenv(GEMINI_API_KEY_ENV, "").strip()
+
+
+def _get_gemini_model() -> str:
+    file_model = _read_env_file_value(GEMINI_MODEL_ENV)
+    if file_model:
+        return file_model
+    return os.getenv(GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+
+
+def _analysis_cache_key(image_bytes: bytes) -> str:
+    return hashlib.sha256(image_bytes).hexdigest()
+
+
+def _get_cached_quality(cache_key: str) -> dict[str, str | float] | None:
+    cached = _analysis_cache.get(cache_key)
+    if not cached:
+        return None
+
+    cached_at, result = cached
+    if time.time() - cached_at > QUALITY_RESULT_CACHE_TTL_SECONDS:
+        _analysis_cache.pop(cache_key, None)
+        return None
+
+    return {
+        "freshness": str(result["freshness"]),
+        "confidence": float(result["confidence"]),
+        "topPrediction": str(result["topPrediction"]),
+    }
+
+
+def _set_cached_quality(cache_key: str, result: dict[str, str | float]) -> None:
+    if len(_analysis_cache) >= QUALITY_RESULT_CACHE_MAX_ITEMS:
+        oldest_key = min(_analysis_cache.items(), key=lambda item: item[1][0])[0]
+        _analysis_cache.pop(oldest_key, None)
+
+    _analysis_cache[cache_key] = (
+        time.time(),
+        {
+            "freshness": str(result["freshness"]),
+            "confidence": float(result["confidence"]),
+            "topPrediction": str(result["topPrediction"]),
+        },
+    )
+
+
 def _keyword_confidence(predictions: list[tuple[str, str, float]], keywords: set[str]) -> float:
     best = 0.0
     for _, label, confidence in predictions:
@@ -159,7 +238,7 @@ def _normalize_quality_label(label: str | None) -> str | None:
 
 
 def _is_gemini_enabled() -> bool:
-    return bool(os.getenv(GEMINI_API_KEY_ENV, "").strip())
+    return bool(_get_gemini_api_key())
 
 
 def _detect_image_mime_type(image_bytes: bytes) -> str:
@@ -175,7 +254,7 @@ def _detect_image_mime_type(image_bytes: bytes) -> str:
 
 
 def _gemini_models_to_try() -> list[str]:
-    configured_model = os.getenv(GEMINI_MODEL_ENV, DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+    configured_model = _get_gemini_model()
     models_to_try = [configured_model]
     for fallback_model in GEMINI_FALLBACK_MODELS:
         if fallback_model not in models_to_try:
@@ -225,16 +304,45 @@ def _request_gemini_response(
     api_key: str,
     payload: dict[str, Any],
 ) -> dict[str, Any] | None:
-    try:
-        response = requests.post(endpoint, params={"key": api_key}, json=payload, timeout=12)
-        response.raise_for_status()
-        data = response.json()
-    except Exception:
-        return None
+    for attempt in range(GEMINI_MAX_RETRIES + 1):
+        try:
+            response = requests.post(
+                endpoint,
+                params={"key": api_key},
+                json=payload,
+                timeout=GEMINI_HTTP_TIMEOUT_SECONDS,
+            )
+        except Exception as error:
+            logger.warning("Gemini request transport error: %s", error)
+            return None
 
-    if not isinstance(data, dict):
-        return None
-    return data
+        if response.status_code == 429:
+            if attempt < GEMINI_MAX_RETRIES:
+                retry_after = 0.8 * (attempt + 1)
+                retry_after_header = response.headers.get("Retry-After")
+                if retry_after_header:
+                    try:
+                        retry_after = max(retry_after, float(retry_after_header))
+                    except ValueError:
+                        pass
+                time.sleep(min(retry_after, 3.0))
+                continue
+
+            logger.warning("Gemini request rate-limited (429); falling back to local analyzer")
+            return None
+
+        try:
+            response.raise_for_status()
+            data = response.json()
+        except Exception as error:
+            logger.warning("Gemini request failed (%s): %s", response.status_code, error)
+            return None
+
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    return None
 
 
 def _extract_gemini_text_part(data: dict[str, Any]) -> str | None:
@@ -327,7 +435,7 @@ def _try_gemini_model(
 
 
 def _analyze_with_gemini(image_bytes: bytes) -> dict[str, str | float] | None:
-    api_key = os.getenv(GEMINI_API_KEY_ENV, "").strip()
+    api_key = _get_gemini_api_key()
     if not api_key:
         return None
 
@@ -530,6 +638,11 @@ def _decide_freshness(
 
 
 def analyze_food_freshness(image_bytes: bytes) -> dict[str, str | float]:
+    cache_key = _analysis_cache_key(image_bytes)
+    cached_result = _get_cached_quality(cache_key)
+    if cached_result:
+        return cached_result
+
     try:
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
     except UnidentifiedImageError as exc:
@@ -538,12 +651,14 @@ def analyze_food_freshness(image_bytes: bytes) -> dict[str, str | float]:
     if _is_gemini_enabled():
         gemini_result = _analyze_with_gemini(image_bytes)
         if gemini_result:
-            return {
+            result = {
                 "freshness": str(gemini_result["freshness"]),
                 "confidence": round(float(gemini_result["confidence"]), 4),
                 "topPrediction": str(gemini_result["topPrediction"]),
             }
-        # Gemini can fail due quota/network/model constraints; local analysis keeps posting usable.
+            _set_cached_quality(cache_key, result)
+            return result
+        logger.warning("Gemini unavailable for this request; using local analyzer fallback")
 
     heuristic_signals = _heuristic_signals(image)
 
@@ -572,11 +687,13 @@ def analyze_food_freshness(image_bytes: bytes) -> dict[str, str | float]:
             label, confidence = FRESHNESS_QUESTIONABLE, 0.46
         top_label = "heuristic_only"
 
-    return {
+    result = {
         "freshness": label,
         "confidence": round(confidence, 4),
         "topPrediction": top_label,
     }
+    _set_cached_quality(cache_key, result)
+    return result
 
 
 def should_mark_verified(freshness: str, confidence: float) -> bool:

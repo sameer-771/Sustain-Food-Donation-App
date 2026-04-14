@@ -1,5 +1,5 @@
 param(
-    [string]$Host = "0.0.0.0",
+    [string]$ListenHost = "0.0.0.0",
     [int]$Port = 8000,
     [switch]$NoReload
 )
@@ -45,6 +45,43 @@ if ([string]::IsNullOrWhiteSpace($geminiKey)) {
     Write-Host "Gemini quality analyzer enabled with model: $geminiModel"
 }
 
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    $listenerPids = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+
+    if (-not $listenerPids) {
+        break
+    }
+
+    $stoppedAny = $false
+    foreach ($listenerPid in $listenerPids) {
+        $runningProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
+        if (-not $runningProcess) {
+            continue
+        }
+
+        Write-Warning "Port $Port is already in use by PID $listenerPid ($($runningProcess.ProcessName)). Stopping it for a clean backend restart..."
+        try {
+            Stop-Process -Id $listenerPid -Force -ErrorAction Stop
+            $stoppedAny = $true
+        } catch {
+            Write-Warning "Could not stop PID $listenerPid automatically: $($_.Exception.Message)"
+        }
+    }
+
+    if (-not $stoppedAny) {
+        break
+    }
+}
+
+$blockingListeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Where-Object { Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue }
+
+if ($blockingListeners) {
+    $blockingPids = $blockingListeners | Select-Object -ExpandProperty OwningProcess -Unique
+    Write-Warning "Port $Port still has active listener(s): $($blockingPids -join ', '). Uvicorn will now attempt to bind; if it fails, close those processes and retry."
+}
+
 Set-Location -Path $repoRoot
 
 $args = @(
@@ -54,7 +91,7 @@ $args = @(
     "--app-dir",
     "backend",
     "--host",
-    $Host,
+    $ListenHost,
     "--port",
     "$Port"
 )

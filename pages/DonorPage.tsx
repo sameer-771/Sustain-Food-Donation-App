@@ -546,6 +546,9 @@ const DonorPage: React.FC<DonorPageProps> = ({ listings, currentUserEmail, curre
                         <p className="text-xs font-semibold text-ios-systemGray mt-1">
                             Confidence Score: {(aiResult.confidence * 100).toFixed(1)}%
                         </p>
+                        <p className="text-xs font-semibold text-ios-systemGray mt-1">
+                            Source: {aiResult.source === 'gemini' ? 'Gemini API' : 'Local Analyzer'}
+                        </p>
                     </div>
                 )}
 

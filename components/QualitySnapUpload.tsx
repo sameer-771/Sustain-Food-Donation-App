@@ -11,6 +11,7 @@ interface LocalQualityResult {
     status: LocalQualityStatus;
     freshness: 'Fresh' | 'Questionable' | 'Spoiled';
     confidence: number;
+    source: 'gemini' | 'local';
 }
 
 interface QualitySnapUploadProps {
@@ -38,13 +39,14 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
             const response = await verifyQualityPreviewInApi(file);
             const statusMap: Record<LocalQualityResult['freshness'], LocalQualityStatus> = {
                 Fresh: 'good',
-                Questionable: 'good',
+                Questionable: 'bad',
                 Spoiled: 'bad',
             };
             setQualityResult({
                 freshness: response.quality.freshness,
                 status: statusMap[response.quality.freshness],
                 confidence: response.quality.confidence,
+                source: response.quality.topPrediction.toLowerCase().startsWith('gemini:') ? 'gemini' : 'local',
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Could not analyze image right now.';
@@ -169,14 +171,19 @@ const QualitySnapUpload: React.FC<QualitySnapUploadProps> = ({ onImageUpload, on
                                     </span>
                                 </div>
                             ) : qualityResult ? (
-                                <div className="flex items-center gap-2.5">
-                                    <ShieldCheck size={16} />
-                                    <span className="text-[12px] font-black uppercase tracking-wide">
-                                        {qualityResult.status === 'good' ? 'Good Quality' : 'Bad Quality'}
-                                    </span>
-                                    <span className="ml-auto text-[10px] font-bold opacity-80">
-                                        {(qualityResult.confidence * 100).toFixed(1)}%
-                                    </span>
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2.5">
+                                        <ShieldCheck size={16} />
+                                        <span className="text-[12px] font-black uppercase tracking-wide">
+                                            {qualityResult.status === 'good' ? 'Good Quality' : 'Bad Quality'}
+                                        </span>
+                                        <span className="ml-auto text-[10px] font-bold opacity-80">
+                                            {(qualityResult.confidence * 100).toFixed(1)}%
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">
+                                        Source: {qualityResult.source === 'gemini' ? 'Gemini API' : 'Local Analyzer'}
+                                    </p>
                                 </div>
                             ) : analysisError ? (
                                 <span className="text-[11px] font-bold text-red-600 dark:text-red-400">

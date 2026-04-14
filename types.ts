@@ -77,6 +77,8 @@ export interface QualityCheckResult {
   freshness: QualityClass;
   confidence: number;
   isVerified: boolean;
+  source?: 'gemini' | 'local';
+  topPrediction?: string;
 }
 
 export interface PickupCodeResult {

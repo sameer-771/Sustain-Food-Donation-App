@@ -453,12 +453,15 @@ const App: React.FC = () => {
       ? Number((donorRatings.reduce((sum, rating) => sum + rating, 0) / donorRatings.length).toFixed(2))
       : 5;
 
-    const qualityGateMessage = 'Only good-quality food can be posted. Please upload fresher food.';
+    const qualityGateMessage = 'Only verified fresh food can be posted. Please upload a clearer and fresher food photo.';
     const freshnessMap: Record<string, FoodListing['freshness']> = {
       Fresh: 'excellent',
-      Questionable: 'good',
+      Questionable: 'fair',
       Spoiled: 'fair',
     };
+    const resolveQualitySource = (topPrediction?: string): 'gemini' | 'local' => (
+      topPrediction?.toLowerCase().startsWith('gemini:') ? 'gemini' : 'local'
+    );
 
     let previewQuality: QualityCheckResult;
     try {
@@ -467,16 +470,18 @@ const App: React.FC = () => {
         freshness: previewResponse.quality.freshness,
         confidence: previewResponse.quality.confidence,
         isVerified: previewResponse.quality.isVerified,
+        source: resolveQualitySource(previewResponse.quality.topPrediction),
+        topPrediction: previewResponse.quality.topPrediction,
       };
 
-      if (previewResponse.quality.freshness === 'Spoiled') {
+      if (!previewResponse.quality.isVerified) {
         throw new Error(qualityGateMessage);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to verify food quality right now.';
       const normalized = message.toLowerCase();
 
-      if (normalized.includes('only good-quality food can be posted') || normalized.includes('spoiled') || normalized.includes('bad quality')) {
+      if (normalized.includes('only good-quality food can be posted') || normalized.includes('only verified fresh food can be posted') || normalized.includes('spoiled') || normalized.includes('bad quality')) {
         throw new Error(qualityGateMessage);
       }
 
@@ -554,9 +559,11 @@ const App: React.FC = () => {
         freshness: response.quality.freshness,
         confidence: response.quality.confidence,
         isVerified: response.quality.isVerified,
+        source: resolveQualitySource(response.quality.topPrediction),
+        topPrediction: response.quality.topPrediction,
       };
 
-      if (response.quality.freshness === 'Spoiled') {
+      if (!response.quality.isVerified) {
         throw new Error(qualityGateMessage);
       }
 
@@ -585,7 +592,8 @@ const App: React.FC = () => {
       void refreshFromBackend();
 
       const message = error instanceof Error ? error.message : 'Unable to verify food quality right now.';
-      if (message.toLowerCase().includes('only good-quality food can be posted')) {
+      const normalized = message.toLowerCase();
+      if (normalized.includes('only good-quality food can be posted') || normalized.includes('only verified fresh food can be posted')) {
         throw new Error(qualityGateMessage);
       }
       throw new Error('Unable to verify food quality right now. Donation was not posted.');

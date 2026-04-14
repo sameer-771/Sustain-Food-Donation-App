@@ -62,6 +62,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
   const [scannerListingId, setScannerListingId] = useState<string | null>(null);
   const [ratingListingId, setRatingListingId] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [isRatingSubmitting, setIsRatingSubmitting] = useState(false);
 
   const refreshCurrentLocation = useCallback(async () => {
     setLocationStatus('loading');
@@ -231,17 +232,22 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
 
   // Rating handlers
   const handleRatingSubmit = useCallback(async (rating: number, feedback: string) => {
-    if (!ratingListingId) return;
+    if (!ratingListingId || isRatingSubmitting) return;
+    const targetListingId = ratingListingId;
+    setIsRatingSubmitting(true);
     try {
       await saveRatingToApi({
-        listingId: ratingListingId,
+        listingId: targetListingId,
         userId: currentUserId,
         rating,
         feedback: feedback || undefined,
         timestamp: new Date().toISOString(),
       });
+      setRatingListingId(null);
       if (onFeedbackSubmitted) {
-        await onFeedbackSubmitted();
+        void onFeedbackSubmitted().catch(() => {
+          // Keep local state if background refresh fails.
+        });
       }
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 409) {
@@ -278,9 +284,10 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
         tone: 'error',
       });
       return;
+    } finally {
+      setIsRatingSubmitting(false);
     }
-    setRatingListingId(null);
-  }, [ratingListingId, currentUserId, onFeedbackSubmitted]);
+  }, [ratingListingId, isRatingSubmitting, currentUserId, onFeedbackSubmitted]);
 
   const handleRatingSkip = useCallback(() => {
     setRatingListingId(null);
@@ -499,6 +506,7 @@ const ReceiverPage: React.FC<ReceiverPageProps> = ({ listings, onClaim, onPickup
             listingTitle={ratingListing.title}
             onSubmit={handleRatingSubmit}
             onSkip={handleRatingSkip}
+            isSubmitting={isRatingSubmitting}
           />
         )}
       </AnimatePresence>

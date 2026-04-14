@@ -11,7 +11,7 @@ from ..core.config import EXPIRY_DURATION_SECONDS
 from ..core.supabase_config import get_supabase_client
 from ..core.time_utils import now_iso, parse_iso_datetime
 from ..schemas.food import FoodCreate, FoodPatch
-from .quality_service import analyze_food_freshness
+from .quality_service import analyze_food_freshness, should_mark_verified
 
 PICKUP_TOKEN_PREFIX = "SUSTAIN_PICKUP"
 PICKUP_TOKEN_EXPIRY_MINUTES = 15
@@ -360,12 +360,14 @@ def verify_food_quality(food_id: str, image_bytes: bytes, actor_user_id: str) ->
         quality_result = analyze_food_freshness(image_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail="Image analysis failed") from exc
 
     freshness = str(quality_result["freshness"])
     confidence = float(quality_result["confidence"])
-    is_verified = freshness.lower() != "spoiled"
+    is_verified = should_mark_verified(freshness, confidence)
 
     updated_rows = (
         get_supabase_client(use_service_role=True)
@@ -401,12 +403,14 @@ def preview_food_quality(image_bytes: bytes) -> dict[str, Any]:
         quality_result = analyze_food_freshness(image_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail="Image analysis failed") from exc
 
     freshness = str(quality_result["freshness"])
     confidence = float(quality_result["confidence"])
-    is_verified = freshness.lower() != "spoiled"
+    is_verified = should_mark_verified(freshness, confidence)
 
     return {
         "quality": {

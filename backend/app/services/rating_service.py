@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from typing import Any
 
 from fastapi import HTTPException
@@ -8,19 +9,38 @@ from ..core.time_utils import now_iso
 from ..schemas.rating import RatingCreate
 
 
-def _get_donor_rows(conn: Any, donor_email: str | None, donor_name: str) -> tuple[list[Any], list[Any]]:
-    all_foods = conn.table("donations").select("id, donor_json, donor_email").execute().data or []
+logger = logging.getLogger(__name__)
 
+
+def _get_donor_rows(
+    conn: Any,
+    donor_id: str | None,
+    donor_email: str | None,
+    donor_name: str,
+) -> tuple[list[Any], list[Any]]:
     donor_food_rows: list[Any] = []
-    for food in all_foods:
-        row_email = (food.get("donor_email") or "").strip().lower()
-        donor_json = food.get("donor_json") or {}
-        row_name = (donor_json.get("name") or "").strip().lower()
 
-        match_by_email = bool(donor_email) and row_email == donor_email.strip().lower()
-        match_by_name = not donor_email and row_name == donor_name.strip().lower()
-        if match_by_email or match_by_name:
-            donor_food_rows.append(food)
+    normalized_donor_id = (donor_id or "").strip()
+    if normalized_donor_id:
+        donor_food_rows = (
+            conn.table("donations")
+            .select("id, donor_json, donor_email, donor_id")
+            .eq("donor_id", normalized_donor_id)
+            .execute()
+        ).data or []
+
+    # Backward-compatible fallback for old records without donor_id.
+    if not donor_food_rows:
+        all_foods = conn.table("donations").select("id, donor_json, donor_email").execute().data or []
+        for food in all_foods:
+            row_email = (food.get("donor_email") or "").strip().lower()
+            donor_json = food.get("donor_json") or {}
+            row_name = (donor_json.get("name") or "").strip().lower()
+
+            match_by_email = bool(donor_email) and row_email == donor_email.strip().lower()
+            match_by_name = not donor_email and row_name == donor_name.strip().lower()
+            if match_by_email or match_by_name:
+                donor_food_rows.append(food)
 
     listing_ids = [row["id"] for row in donor_food_rows]
     if not listing_ids:
@@ -124,7 +144,7 @@ def create_rating(payload: RatingCreate, actor_user_id: str | None = None) -> di
 
     food_row_list = (
         client.table("donations")
-        .select("id, donor_json, donor_email, food_name")
+        .select("id, donor_id, donor_json, donor_email, food_name")
         .eq("id", payload.listingId)
         .limit(1)
         .execute()
@@ -135,20 +155,29 @@ def create_rating(payload: RatingCreate, actor_user_id: str | None = None) -> di
         donor_info = food_row.get("donor_json") or {}
         donor_name = donor_info.get("name", "Donor")
         donor_email = food_row.get("donor_email")
-        donor_ratings, donor_food_rows = _get_donor_rows(client, donor_email, donor_name)
-        rounded_rating = _update_donor_average(client, donor_food_rows, donor_ratings)
+        donor_id = food_row.get("donor_id")
+
+        rounded_rating: float | None = None
+        try:
+            donor_ratings, donor_food_rows = _get_donor_rows(client, donor_id, donor_email, donor_name)
+            rounded_rating = _update_donor_average(client, donor_food_rows, donor_ratings)
+        except Exception as error:
+            logger.warning("Failed to update donor average for listing %s: %s", payload.listingId, error)
 
         feedback_text = (payload.feedback or "").strip()
         if feedback_text:
             rating_for_message = rounded_rating if rounded_rating is not None else float(payload.rating)
-            _insert_feedback_notification(
-                client,
-                donor_name=donor_name,
-                listing_title=food_row.get("food_name") or "Donation",
-                listing_id=payload.listingId,
-                feedback_text=feedback_text,
-                rounded_rating=rating_for_message,
-            )
+            try:
+                _insert_feedback_notification(
+                    client,
+                    donor_name=donor_name,
+                    listing_title=food_row.get("food_name") or "Donation",
+                    listing_id=payload.listingId,
+                    feedback_text=feedback_text,
+                    rounded_rating=rating_for_message,
+                )
+            except Exception as error:
+                logger.warning("Failed to create feedback notification for listing %s: %s", payload.listingId, error)
 
     if not inserted:
         raise HTTPException(status_code=500, detail="Failed to save rating")

@@ -7,9 +7,10 @@ interface RatingModalProps {
   listingTitle: string;
   onSubmit: (rating: number, feedback: string) => void;
   onSkip: () => void;
+  isSubmitting?: boolean;
 }
 
-const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSkip }) => {
+const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSkip, isSubmitting = false }) => {
   const [rating, setRating] = useState(0);
   const [hoveredStar, setHoveredStar] = useState(0);
   const [feedback, setFeedback] = useState('');
@@ -47,6 +48,7 @@ const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSki
         {/* Close */}
         <button
           onClick={onSkip}
+          disabled={isSubmitting}
           className="absolute top-3 right-4 w-11 h-11 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center z-20"
         >
           <X size={18} className="text-ios-systemGray" />
@@ -104,19 +106,20 @@ const RatingModal: React.FC<RatingModalProps> = ({ listingTitle, onSubmit, onSki
           {/* Buttons */}
           <div className="space-y-2.5">
             <button
-              onClick={() => rating > 0 && onSubmit(rating, feedback)}
-              disabled={rating === 0}
-              className={`w-full py-4 min-h-[48px] rounded-2xl font-black text-[14px] uppercase tracking-wider flex items-center justify-center gap-2 active:scale-[0.97] transition-all ${
-                rating > 0
+              onClick={() => rating > 0 && !isSubmitting && onSubmit(rating, feedback)}
+              disabled={rating === 0 || isSubmitting}
+              className={`w-full py-4 min-h-[48px] rounded-2xl font-black text-[14px] uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                rating > 0 && !isSubmitting
                   ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/25'
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
               }`}
             >
-              Submit Rating
+              {isSubmitting ? 'Submitting...' : 'Submit Rating'}
             </button>
             <button
               onClick={onSkip}
-              className="w-full py-3.5 min-h-[48px] rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform"
+              disabled={isSubmitting}
+              className="w-full py-3.5 min-h-[48px] rounded-2xl bg-black/5 dark:bg-white/5 text-ios-systemGray font-bold text-[13px] active:scale-[0.97] transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
             >
               Skip
             </button>
